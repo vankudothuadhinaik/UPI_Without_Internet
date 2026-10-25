@@ -1,4 +1,4 @@
-[![Java CI](https://github.com/adhinaik13/UPI_Without_Internet/actions/workflows/ci.yml/badge.svg)](https://github.com/adhinaik13/UPI_Without_Internet/actions)
+[![Java CI](https://github.com/vankudothuadhinaik/UPI_Without_Internet/actions/workflows/ci.yml/badge.svg)](https://github.com/vankudothuadhinaik/UPI_Without_Internet/actions)
 
 # **🔐 UPI Offline Mesh — Cryptographic Offline Payments**
 
@@ -502,7 +502,7 @@ The project separates API controllers, cryptographic components, domain models, 
 ## **👤 Author**
 
 **Vankudothu Adhi Naik**
-GitHub: [adhinaik13](https://github.com/adhinaik13)
+GitHub: [vankudothuadhinaik](https://github.com/vankudothuadhinaik)
 
 
 
