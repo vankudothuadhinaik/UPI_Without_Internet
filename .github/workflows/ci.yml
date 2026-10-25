@@ -13,3 +13,5 @@ jobs:
         run: chmod +x mvnw
       - name: Build with Maven
         run: ./mvnw clean package
+      - name: Validate Docker image build
+        run: docker build --tag upi-offline-mesh:ci .
