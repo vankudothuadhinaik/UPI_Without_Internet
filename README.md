@@ -14,6 +14,8 @@
 
 ---
 
+> **Prototype safety notice:** This repository is a research/demo prototype, not a real payment service. Idempotency lifecycle and transaction-failure handling still need code-level hardening and regression tests. Do not use this project for real funds or customer payment processing.
+
 ## **🏗️ Architecture**
 
 ```text
