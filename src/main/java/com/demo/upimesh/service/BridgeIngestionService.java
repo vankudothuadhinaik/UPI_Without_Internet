@@ -15,18 +15,11 @@ import java.security.PublicKey;
 import java.time.Instant;
 
 /**
- * Orchestrates the full server-side pipeline for one inbound packet from a
- * bridge node:
+ * Orchestrates the server-side pipeline for one inbound bridge packet.
  *
- *   1. Hash the ciphertext.
- *   2. Try to claim that hash via the idempotency cache.
- *      - If already claimed: this is a duplicate. Drop it.
- *   3. Decrypt the ciphertext with the server's private key.
- *      - If decryption fails: tampered or junk. Reject.
- *   4. Verify digital signature using the sender's registered public key.
- *      - If signature invalid: forged or corrupted. Reject.
- *   5. Check freshness — reject if signedAt is too old (replay protection).
- *   6. Hand off to SettlementService for the actual debit/credit.
+ * Validation deliberately precedes the idempotency claim: unauthenticated,
+ * malformed, or stale packets must not reserve a packet hash and prevent a
+ * later valid delivery from being processed.
  */
 @Service
 public class BridgeIngestionService {
@@ -46,14 +39,7 @@ public class BridgeIngestionService {
         try {
             String packetHash = crypto.hashCiphertext(packet.getCiphertext());
 
-            // ---- Idempotency gate ----
-            if (!idempotency.claim(packetHash)) {
-                log.info("DUPLICATE packet {} from bridge {} — dropped",
-                        packetHash.substring(0, 12) + "...", bridgeNodeId);
-                return IngestResult.duplicate(packetHash);
-            }
-
-            // ---- Decrypt ----
+            // ---- Decrypt before claiming idempotency ----
             PaymentInstruction instruction;
             try {
                 instruction = crypto.decrypt(packet.getCiphertext());
@@ -90,8 +76,17 @@ public class BridgeIngestionService {
                         packetHash.substring(0, 12) + "...", ageSeconds);
                 return IngestResult.invalid(packetHash, "stale_packet");
             }
-            if (ageSeconds < -300) { // small clock-skew tolerance
+            if (ageSeconds < -300) {
                 return IngestResult.invalid(packetHash, "future_dated");
+            }
+
+            // ---- Idempotency gate after packet validation ----
+            // Keep the atomic claim immediately before settlement so concurrent
+            // valid deliveries still have a single winner.
+            if (!idempotency.claim(packetHash)) {
+                log.info("DUPLICATE packet {} from bridge {} — dropped",
+                        packetHash.substring(0, 12) + "...", bridgeNodeId);
+                return IngestResult.duplicate(packetHash);
             }
 
             // ---- Settle ----
@@ -102,8 +97,12 @@ public class BridgeIngestionService {
             return IngestResult.settled(packetHash, tx);
 
         } catch (Exception e) {
+            // A claim made immediately before settlement can still remain until
+            // its TTL if settlement fails. Do not blindly delete it here:
+            // release() is not ownership-token guarded and could remove another
+            // worker's claim after a TTL/claim race.
             log.error("Ingestion error: {}", e.getMessage(), e);
-            return IngestResult.invalid("?", "internal_error: " + e.getMessage());
+            return IngestResult.invalid("?", "internal_error");
         }
     }
 
