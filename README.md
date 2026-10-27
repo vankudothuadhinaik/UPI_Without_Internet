@@ -215,9 +215,9 @@ Each `PaymentInstruction` contains:
 The settlement gateway rejects packets where:
 - `age` exceeds `maxAgeSeconds` (configurable, default 86400)
 - `age` is more than 5 minutes in the future (clock-skew tolerance)
-- `nonce` has already been seen (idempotency)
+- the same ciphertext fingerprint has already been claimed by the idempotency cache (this is not yet a durable, independently enforced nonce registry)
 
-This provides explicit replay-attack protection within the configured time window.
+This provides a replay check based on the ciphertext fingerprint and cache lifetime. **Known implementation limitation:** the current ingestion flow claims the fingerprint before decrypting and authenticating the packet. Some early rejection or transient-failure paths can leave that claim in place until its cache entry expires, blocking a legitimate retry. The in-process fallback is also not shared across multiple application instances. These behaviors require code-level fixes and regression tests; the README does not claim production-grade replay or distributed idempotency guarantees.
 
 **5. Hardware Security Roadmap**
 Future Android integration can use hardware-backed key storage such as:
