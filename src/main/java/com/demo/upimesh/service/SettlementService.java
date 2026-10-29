@@ -44,13 +44,23 @@ public class SettlementService {
                               String bridgeNodeId, int hopCount) {
 
         try {
-            Account sender = accounts.findByIdForUpdate(instruction.getSenderVpa())
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Unknown sender VPA: " + instruction.getSenderVpa()));
+            String senderVpa = instruction.getSenderVpa();
+            String receiverVpa = instruction.getReceiverVpa();
+            if (senderVpa == null || receiverVpa == null || senderVpa.equals(receiverVpa)) {
+                throw new IllegalArgumentException("Sender and receiver must be distinct valid VPAs");
+            }
 
-            Account receiver = accounts.findByIdForUpdate(instruction.getReceiverVpa())
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Unknown receiver VPA: " + instruction.getReceiverVpa()));
+            // Lock accounts in a stable global order. Without this, opposite-direction
+            // transfers (A -> B and B -> A) can each lock one row and deadlock waiting
+            // for the other row.
+            String firstVpa = senderVpa.compareTo(receiverVpa) < 0 ? senderVpa : receiverVpa;
+            String secondVpa = senderVpa.compareTo(receiverVpa) < 0 ? receiverVpa : senderVpa;
+            Account first = accounts.findByIdForUpdate(firstVpa)
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown account VPA: " + firstVpa));
+            Account second = accounts.findByIdForUpdate(secondVpa)
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown account VPA: " + secondVpa));
+            Account sender = senderVpa.equals(firstVpa) ? first : second;
+            Account receiver = receiverVpa.equals(firstVpa) ? first : second;
 
             BigDecimal amount = instruction.getAmount();
             if (amount.signum() <= 0) {
