@@ -58,7 +58,7 @@ class SettlementLockOrderingTest {
         instruction.setSignedAt(1_700_000_000_000L);
 
         Transaction settled = service(accounts, transactions)
-                .settle(instruction, "packet-hash", "bridge", 1);
+                .settle(instruction, "packet-hash-long", "bridge", 1);
 
         assertNotNull(settled);
         assertEquals(Transaction.Status.SETTLED, settled.getStatus());
