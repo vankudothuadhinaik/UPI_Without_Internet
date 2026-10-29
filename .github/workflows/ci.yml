@@ -54,4 +54,8 @@ jobs:
         env:
           SPRING_PROFILES_ACTIVE: prod
           DB_PASSWORD: test-password
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/upimesh
+          SPRING_DATASOURCE_USERNAME: upi
+          SPRING_DATA_REDIS_HOST: localhost
+          SPRING_DATA_REDIS_PORT: 6379
         run: ./mvnw --batch-mode clean test
