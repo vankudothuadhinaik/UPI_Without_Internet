@@ -135,7 +135,7 @@ public class HybridCryptoService {
      */
     public String hashCiphertext(String base64Ciphertext) throws Exception {
         MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-        byte[] hash = sha256.digest(base64Ciphertext.getBytes(StandardCharsets.US_ASCII));
+        byte[] hash = sha256.digest(base64Ciphertext.getBytes(StandardCharsets.UTF_8));
         StringBuilder hex = new StringBuilder();
         for (byte b : hash) {
             hex.append(String.format("%02x", b));
