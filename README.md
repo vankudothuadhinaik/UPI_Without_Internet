@@ -427,6 +427,10 @@ Planned improvements include:
 • WiFi Direct communication
 • Offline device discovery
 
+### Idempotency store availability
+
+The single-process development profile explicitly permits a local in-memory fallback when Redis is unavailable. The production profile disables this fallback: if Redis cannot claim a packet hash, ingestion fails closed instead of pretending a process-local map can prevent duplicate settlement across multiple application instances. This is a safety property of the simulation, not a claim of production payment readiness.
+
 ### **🔐 Security**
 - ~~Digital signatures for sender authentication~~ ✅ Implemented
 - Stronger device identity provisioning (certificate chains, attestation)
