@@ -55,8 +55,9 @@
         │ Account / DB  │
         │    State      │
         └───────────────┘
+```
 
-🚀 Live Demo
+## 🚀 Live Demo
 
 Run the application locally and open:
 QR Demo: http://localhost:8080/qr-demo
@@ -66,7 +67,7 @@ The demo allows you to generate an encrypted payment QR code and follow the tran
 
 [Watch the full demo on YouTube](https://youtu.be/_jcLwtK2IOU) — Flow shown: QR generation → transaction propagation → bridge ingestion → settlement
 
-✨ Key Features
+## ✨ Key Features
 
 | Feature                           | Implementation                                 | Purpose                                    |
 | --------------------------------- | ---------------------------------------------- | ------------------------------------------ |
@@ -83,7 +84,7 @@ The demo allows you to generate an encrypted payment QR code and follow the tran
 | 🔏 **Digital Signatures**         | RSA-PSS per-device keypairs                    | Sender authentication & non-repudiation    |
 | 🤖 **CI**                         | GitHub Actions                                 | Automatically build and test changes       |   
 
-🛠️ Tech Stack
+## 🛠️ Tech Stack
 
 | Layer                     | Technology                             |
 | ------------------------- | -------------------------------------- |
@@ -101,15 +102,15 @@ The demo allows you to generate an encrypted payment QR code and follow the tran
 | **Containerization**      | Docker / Docker Compose                |
 | **CI**                    | GitHub Actions                         |
 
-🚀 Quick Start
+## 🚀 Quick Start
 
-Prerequisites
+### Prerequisites
 Make sure you have:
 • JDK 17 or higher
 • Maven Wrapper included in the repository
 • Docker and Docker Compose (optional)
 
-Run Locally
+### Run Locally
 
 Linux / macOS
 ./mvnw spring-boot:run
@@ -124,14 +125,30 @@ mvnw.cmd spring-boot:run
 | 📚 Swagger UI  | [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) |
 | 🗄️ H2 Console | [http://localhost:8080/h2-console](http://localhost:8080/h2-console)     |
 
-Run with Docker
+### Run with Docker (development profile)
 
-docker-compose up --build
+```bash
+docker compose up --build
+```
 
-To stop the containers: 
-docker-compose down
+To stop the containers:
 
-📡 API Endpoints
+```bash
+docker compose down
+```
+
+#### PostgreSQL + Redis production-profile smoke test
+
+The repository CI starts PostgreSQL and Redis and runs the test suite with the `prod` profile. For a local Compose deployment, set `DB_PASSWORD` in your shell or an untracked `.env` file before running Compose:
+
+```bash
+export DB_PASSWORD='choose-a-local-development-password'
+SPRING_PROFILES_ACTIVE=prod docker compose up --build
+```
+
+This is still a prototype. Do not use production-profile configuration as evidence of production payment readiness; key provisioning, operational controls, recovery workflows, and independent security review remain incomplete.
+
+## 📡 API Endpoints
 
 | Method | Endpoint             | Description                                    |
 | ------ | -------------------- | ---------------------------------------------- |
@@ -144,7 +161,7 @@ docker-compose down
 | `GET`  | `/api/accounts`      | Retrieve account information                   |
 | `GET`  | `/api/transactions`  | Retrieve transaction history                   |
 
-🔐 Security Model
+## 🔐 Security Model
 
 **1. Hybrid Encryption**
 The payment payload uses a hybrid encryption approach:
@@ -262,7 +279,7 @@ Settlement Gateway
    ▼         ▼
  Settle    Reject
 
-## **🔄 Payment Flow**
+## 🔄 Payment Flow
 
              CREATE PAYMENT
                     │
@@ -328,7 +345,7 @@ Settlement Gateway
                       ▼
                     SETTLED
 
-🌐 **Mesh / Store-and-Forward Model**
+## 🌐 Mesh / Store-and-Forward Model
 
 The current project simulates the behavior of disconnected bridge nodes on the backend.
 A simplified propagation flow is:
@@ -350,7 +367,7 @@ Settlement Gateway
 A bridge can temporarily retain a transaction and forward it when connectivity becomes available.
 **Important scope:** The current repository does not implement native Bluetooth LE or WiFi Direct communication. Instead, the backend models the transaction propagation and settlement behavior that such a transport layer could use.
 
-🧪 **Testing**
+## 🧪 Testing
 Run the test suite with:
 
 Linux / macOS
@@ -388,7 +405,7 @@ The project includes a concurrency test that simulates multiple delivery attempt
 
 The purpose is to verify that concurrent duplicate delivery does not result in multiple settlements.
 
-🔎 **Observability**
+## 🔎 Observability
 
 The application includes a web dashboard for viewing transaction activity during development and demonstrations.
 The dashboard helps visualize:
@@ -400,7 +417,7 @@ The dashboard helps visualize:
 
 This is intended primarily for development, testing, and demonstration.
 
-⚠️ **Limitations**
+## ⚠️ Limitations
 This project is a research/educational prototype and is not a production UPI implementation.
 Current limitations include:
 
@@ -417,7 +434,7 @@ Current limitations include:
 
 These limitations are intentional and define the current prototype boundary.
 
-🔮 **Future Work**
+## 🔮 Future Work
 Planned improvements include:
 
 📱 Native Mobile Layer
@@ -464,7 +481,7 @@ The single-process development profile explicitly permits a local in-memory fall
 • Protocol verification
 • Failure-mode analysis
 
-🧩 **Project Structure**
+## 🧩 Project Structure
 
 src/
 ├── main/
@@ -487,7 +504,7 @@ src/
 
 The project separates API controllers, cryptographic components, domain models, services, and configuration to keep the backend modular.
 
-📋 **Example Transaction Lifecycle**
+## 📋 Example Transaction Lifecycle
 
 • Sender creates payment
 • Payment payload is encrypted
@@ -503,7 +520,7 @@ The project separates API controllers, cryptographic components, domain models, 
 • Transaction is recorded in the ledger
 
 
-## **👤 Author**
+## 👤 Author
 
 **Vankudothu Adhi Naik**
 GitHub: [vankudothuadhinaik](https://github.com/vankudothuadhinaik)
