@@ -57,6 +57,17 @@ public class SignatureVerificationTest {
     }
 
     @Test
+    public void malformedCiphertext_IsRejectedWithoutSettlement() throws Exception {
+        var packet = demoService.createPacket(
+                "alice@demo", "bob@demo", new BigDecimal("10.00"), "1234", 5);
+        packet.setCiphertext("not-base64!");
+
+        var result = ingestion.ingest(packet, "bridge-A", 1);
+
+        assertEquals("INVALID", result.outcome());
+    }
+
+    @Test
     public void validPacketTwice_SecondIsDuplicate() throws Exception {
         var packet = demoService.createPacket(
                 "alice@demo", "bob@demo", new BigDecimal("10.00"), "1234", 5);
