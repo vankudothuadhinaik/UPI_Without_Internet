@@ -1,6 +1,7 @@
 package com.demo.upimesh.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -11,6 +12,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class IdempotencyService {
 
     private final StringRedisTemplate redisTemplate;
+
+    @Value("${upi.mesh.idempotency.local-fallback-enabled:false}")
+    private boolean localFallbackEnabled;
     
     // Fallback for dev profile (when Redis is not available)
     private final ConcurrentHashMap<String, String> localCache = new ConcurrentHashMap<>();
@@ -26,7 +30,12 @@ public class IdempotencyService {
                 .setIfAbsent(packetHash, "1", Duration.ofHours(24));
             return Boolean.TRUE.equals(success);
         } catch (Exception e) {
-            // Fallback to local cache if Redis unavailable
+            if (!localFallbackEnabled) {
+                // A process-local cache cannot protect settlement across multiple instances.
+                // Fail closed in production rather than risk duplicate payment processing.
+                throw new IllegalStateException(
+                    "Redis idempotency store unavailable; refusing to claim payment packet", e);
+            }
             return localCache.putIfAbsent(packetHash, "1") == null;
         }
     }
