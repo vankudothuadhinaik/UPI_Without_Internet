@@ -43,6 +43,9 @@ public class BridgeIngestionService {
     private long maxAgeSeconds;
 
     public IngestResult ingest(MeshPacket packet, String bridgeNodeId, int hopCount) {
+        boolean claimAcquired = false;
+        boolean keepClaim = false;
+        String claimedHash = null;
         try {
             String packetHash = crypto.hashCiphertext(packet.getCiphertext());
 
@@ -52,6 +55,8 @@ public class BridgeIngestionService {
                         packetHash.substring(0, 12) + "...", bridgeNodeId);
                 return IngestResult.duplicate(packetHash);
             }
+            claimAcquired = true;
+            claimedHash = packetHash;
 
             // ---- Decrypt ----
             PaymentInstruction instruction;
@@ -97,13 +102,24 @@ public class BridgeIngestionService {
             // ---- Settle ----
             Transaction tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
             if (tx == null) {
+                // The database uniqueness constraint confirmed this packet already
+                // has a durable record; retain the claim as a fast-path hint.
+                keepClaim = true;
                 return IngestResult.duplicate(packetHash);
             }
+            keepClaim = true;
             return IngestResult.settled(packetHash, tx);
 
         } catch (Exception e) {
             log.error("Ingestion error: {}", e.getMessage(), e);
             return IngestResult.invalid("?", "internal_error: " + e.getMessage());
+        } finally {
+            // A claim is provisional until validation and settlement finish.
+            // Release invalid/decryption/signature/freshness failures and transient
+            // processing errors so a retry is not blocked for the full Redis TTL.
+            if (claimAcquired && !keepClaim && claimedHash != null) {
+                idempotency.release(claimedHash);
+            }
         }
     }
 

@@ -4,12 +4,20 @@
 
 Production configuration must fail closed when Redis-backed idempotency storage is unavailable. A process-local map cannot coordinate multiple application instances and must not be treated as durable duplicate-settlement protection. The development-only fallback exists for local demonstrations, not for deployment.
 
+The ingestion path claims the packet hash before decrypting and validating it. Claims for invalid packets are released so a malformed packet cannot reserve a hash for the full Redis TTL. A successful settlement is recorded in the database transaction, and the unique transactions.packet_hash constraint remains the durable duplicate guard. A database duplicate remains a duplicate even if the Redis key has expired.
+
+## Persistence schema
+
+V1__init.sql created a legacy schema whose table and column names did not match the JPA entities used by the application. V2__align_jpa_schema.sql renames those original tables to legacy_account and legacy_transaction, creates the current accounts and transactions schema, and copies compatible account and terminal transaction records.
+
+Legacy PENDING rows are intentionally retained in legacy_transaction for explicit reconciliation; the migration does not silently relabel them as terminal outcomes. The old schema did not store original signing time, bridge ID, or hop count, so migrated terminal records use documented placeholder values. Review the legacy tables before any real deployment.
+
 ## What the prototype does not guarantee
 
-- A local cache does not survive process restart.
-- A cache cannot coordinate separate application instances.
+- A Redis key does not survive its TTL and is not the authoritative ledger.
+- A cache cannot coordinate separate application instances when unavailable.
 - A database uniqueness constraint protects only the exact key and transaction path covered by that constraint.
-- A retry after a partial settlement requires an explicit transaction/state-machine design; a cache alone is not a recovery protocol.
+- A retry after an ambiguous external settlement requires an explicit transaction/state-machine design; a cache alone is not a recovery protocol.
 - A successful unit test is not proof of exactly-once behavior under every crash point.
 
 ## Recovery design required before any production claim

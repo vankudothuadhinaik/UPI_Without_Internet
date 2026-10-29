@@ -1,5 +1,6 @@
 name: Java CI
 on: [push, pull_request]
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,3 +16,46 @@ jobs:
         run: ./mvnw clean package
       - name: Validate Docker image build
         run: docker build --tag upi-offline-mesh:ci .
+
+  production-persistence:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: upimesh
+          POSTGRES_USER: upi
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U upi -d upimesh"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Make mvnw executable
+        run: chmod +x mvnw
+      - name: Test against PostgreSQL and Redis using production profile
+        env:
+          SPRING_PROFILES_ACTIVE: prod
+          DB_PASSWORD: test-password
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/upimesh
+          SPRING_DATASOURCE_USERNAME: upi
+          SPRING_DATA_REDIS_HOST: localhost
+          SPRING_DATA_REDIS_PORT: 6379
+        run: ./mvnw --batch-mode clean test
