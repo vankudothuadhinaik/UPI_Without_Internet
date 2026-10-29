@@ -23,8 +23,8 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/upimesh
-      - SPRING_REDIS_HOST=redis
-      - SPRING_REDIS_PORT=6379
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
     depends_on:
       - postgres
       - redis
