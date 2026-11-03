@@ -18,7 +18,6 @@ import java.security.PublicKey;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -80,7 +79,7 @@ class PaymentIdentityValidationTest {
 
         when(crypto.hashCiphertext("ciphertext")).thenReturn("packet-hash");
         when(crypto.decrypt("ciphertext")).thenReturn(instruction);
-        when(idempotency.claim("packet-hash")).thenReturn(true);
+        when(idempotency.claim("packet-hash")).thenReturn("expiry-claim-token");
         when(identity.getPublicKeyForVpa("alice@demo", "alice-fingerprint"))
                 .thenReturn(senderKey);
         when(signatures.verify(any(byte[].class), eq("valid-signature"), eq(senderKey)))
@@ -104,7 +103,7 @@ class PaymentIdentityValidationTest {
         assertEquals("expired_packet", result.reason());
         verify(identity).getPublicKeyForVpa("alice@demo", "alice-fingerprint");
         verifyNoInteractions(settlement);
-        verify(idempotency).release("packet-hash");
+        verify(idempotency).release("packet-hash", "expiry-claim-token");
     }
 
 
@@ -126,7 +125,7 @@ class PaymentIdentityValidationTest {
 
         when(crypto.hashCiphertext("ciphertext")).thenReturn("amount-packet-hash");
         when(crypto.decrypt("ciphertext")).thenReturn(instruction);
-        when(idempotency.claim("amount-packet-hash")).thenReturn(true);
+        when(idempotency.claim("amount-packet-hash")).thenReturn("amount-claim-token");
         when(identity.getPublicKeyForVpa("alice@demo", "alice-fingerprint"))
                 .thenReturn(senderKey);
         when(signatures.verify(any(byte[].class), eq("valid-signature"), eq(senderKey)))
@@ -149,7 +148,7 @@ class PaymentIdentityValidationTest {
         assertEquals("INVALID", result.outcome());
         assertEquals("invalid_amount", result.reason());
         verifyNoInteractions(settlement);
-        verify(idempotency).release("amount-packet-hash");
+        verify(idempotency).release("amount-packet-hash", "amount-claim-token");
     }
 
 }
