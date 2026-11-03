@@ -1,6 +1,11 @@
 package com.demo.upimesh;
 
 import com.demo.upimesh.crypto.DigitalSignatureService;
+import com.demo.upimesh.crypto.HybridCryptoService;
+import com.demo.upimesh.crypto.ServerKeyHolder;
+import com.demo.upimesh.model.Account;
+import com.demo.upimesh.model.AccountRepository;
+import com.demo.upimesh.model.MeshPacket;
 import com.demo.upimesh.model.PaymentInstruction;
 import com.demo.upimesh.service.BridgeIngestionService;
 import com.demo.upimesh.service.DeviceIdentityService;
@@ -11,6 +16,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import java.math.BigDecimal;
 import java.security.KeyPair;
+import java.time.Instant;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -28,6 +35,9 @@ public class SignatureVerificationTest {
     @Autowired private BridgeIngestionService ingestion;
     @Autowired private DigitalSignatureService sigService;
     @Autowired private DeviceIdentityService identity;
+    @Autowired private AccountRepository accounts;
+    @Autowired private HybridCryptoService crypto;
+    @Autowired private ServerKeyHolder serverKey;
 
     @Test
     public void validSignature_SettlesSuccessfully() throws Exception {
@@ -79,3 +89,75 @@ public class SignatureVerificationTest {
         assertEquals("DUPLICATE_DROPPED", second.outcome());
     }
 }
+
+    @Test
+    public void registeredKeyCannotAuthorizeAnotherVpa() throws Exception {
+        Account alice = accounts.findById("alice@demo").orElseThrow();
+        String previousFingerprint = alice.getPublicKeyFingerprint();
+        String previousPublicKey = alice.getPublicKeyBase64();
+        KeyPair aliceDevice = sigService.generateKeyPair();
+
+        try {
+            alice.setPublicKeyFingerprint(sigService.fingerprint(aliceDevice.getPublic()));
+            alice.setPublicKeyBase64(sigService.encodePublicKey(aliceDevice.getPublic()));
+            accounts.saveAndFlush(alice);
+
+            long now = Instant.now().toEpochMilli();
+            MeshPacket forgedSender = signedPacket(
+                    aliceDevice, "bob@demo", "carol@demo", now, now + 60_000);
+
+            var result = ingestion.ingest(forgedSender, "bridge-impersonation", 1);
+
+            assertEquals("INVALID", result.outcome());
+            assertEquals("sender_key_mismatch", result.reason());
+        } finally {
+            alice.setPublicKeyFingerprint(previousFingerprint);
+            alice.setPublicKeyBase64(previousPublicKey);
+            accounts.saveAndFlush(alice);
+        }
+    }
+
+    @Test
+    public void expiredButCorrectlySignedPacketIsRejected() throws Exception {
+        Account alice = accounts.findById("alice@demo").orElseThrow();
+        String previousFingerprint = alice.getPublicKeyFingerprint();
+        String previousPublicKey = alice.getPublicKeyBase64();
+        KeyPair aliceDevice = sigService.generateKeyPair();
+
+        try {
+            alice.setPublicKeyFingerprint(sigService.fingerprint(aliceDevice.getPublic()));
+            alice.setPublicKeyBase64(sigService.encodePublicKey(aliceDevice.getPublic()));
+            accounts.saveAndFlush(alice);
+
+            long now = Instant.now().toEpochMilli();
+            MeshPacket expired = signedPacket(
+                    aliceDevice, "alice@demo", "bob@demo", now - 60_000, now - 1);
+
+            var result = ingestion.ingest(expired, "bridge-expiry", 1);
+
+            assertEquals("INVALID", result.outcome());
+            assertEquals("expired_packet", result.reason());
+        } finally {
+            alice.setPublicKeyFingerprint(previousFingerprint);
+            alice.setPublicKeyBase64(previousPublicKey);
+            accounts.saveAndFlush(alice);
+        }
+    }
+
+    private MeshPacket signedPacket(
+            KeyPair signer, String senderVpa, String receiverVpa,
+            long signedAt, long expiresAt) throws Exception {
+        PaymentInstruction instruction = new PaymentInstruction(
+                senderVpa, receiverVpa, new BigDecimal("1.00"), "unused-pin-hash",
+                UUID.randomUUID().toString(), signedAt, expiresAt);
+        instruction.setSenderPublicKeyFingerprint(sigService.fingerprint(signer.getPublic()));
+        instruction.setSignature(sigService.sign(
+                instruction.canonicalBytes(), signer.getPrivate()));
+
+        MeshPacket packet = new MeshPacket();
+        packet.setPacketId(UUID.randomUUID().toString());
+        packet.setTtl(5);
+        packet.setCreatedAt(Instant.now().toEpochMilli());
+        packet.setCiphertext(crypto.encrypt(instruction, serverKey.getPublicKey()));
+        return packet;
+    }
