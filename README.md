@@ -83,7 +83,7 @@ The demo allows you to generate an encrypted payment QR code and follow the tran
 | 📚 **API Documentation**          | OpenAPI / Swagger                              | Explore and test APIs                      |
 | 🐳 **Docker Support**             | Docker / Docker Compose                        | Simplify local deployment                  |
 | 🔄 **Database Migration Support** | Flyway                                         | Manage database schema changes             |
-| 🔏 **Digital Signatures**         | RSA-PSS per-device keypairs                    | Sender authentication & non-repudiation    |
+| 🔏 **Digital Signatures**         | RSA-PSS per-device keypairs                    | Prototype signature verification; bridge identity is not authenticated |
 | 🤖 **CI**                         | GitHub Actions                                 | Automatically build and test changes       |   
 
 ## 🛠️ Tech Stack
