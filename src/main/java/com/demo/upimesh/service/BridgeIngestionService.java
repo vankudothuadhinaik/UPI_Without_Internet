@@ -49,20 +49,11 @@ public class BridgeIngestionService {
     private long maxAgeSeconds;
 
     public IngestResult ingest(MeshPacket packet, String bridgeNodeId, int hopCount) {
-        boolean claimAcquired = false;
         boolean keepClaim = false;
         String claimedHash = null;
+        String claimToken = null;
         try {
             String packetHash = crypto.hashCiphertext(packet.getCiphertext());
-
-            // ---- Idempotency gate ----
-            if (!idempotency.claim(packetHash)) {
-                log.info("DUPLICATE packet {} from bridge {} — dropped",
-                        packetHash.substring(0, 12) + "...", bridgeNodeId);
-                return IngestResult.duplicate(packetHash);
-            }
-            claimAcquired = true;
-            claimedHash = packetHash;
 
             // ---- Decrypt ----
             PaymentInstruction instruction;
@@ -131,6 +122,16 @@ public class BridgeIngestionService {
                 return IngestResult.invalid(packetHash, "future_dated");
             }
 
+            // Claim only after cryptographic and timestamp validation so junk
+            // packets cannot fill the Redis idempotency store.
+            claimToken = idempotency.claimWithToken(packetHash);
+            if (claimToken == null) {
+                log.info("DUPLICATE packet {} from bridge {} — dropped",
+                        packetHash.substring(0, 12) + "...", bridgeNodeId);
+                return IngestResult.duplicate(packetHash);
+            }
+            claimedHash = packetHash;
+
             // ---- Settle ----
             Transaction tx;
             try {
@@ -150,13 +151,13 @@ public class BridgeIngestionService {
 
         } catch (Exception e) {
             log.error("Ingestion error: {}", e.getMessage(), e);
-            return IngestResult.invalid("?", "internal_error: " + e.getMessage());
+            return IngestResult.invalid("?", "internal_error");
         } finally {
             // A claim is provisional until validation and settlement finish.
             // Release invalid/decryption/signature/freshness failures and transient
             // processing errors so a retry is not blocked for the full Redis TTL.
-            if (claimAcquired && !keepClaim && claimedHash != null) {
-                idempotency.release(claimedHash);
+            if (claimToken != null && !keepClaim && claimedHash != null) {
+                idempotency.release(claimedHash, claimToken);
             }
         }
     }
