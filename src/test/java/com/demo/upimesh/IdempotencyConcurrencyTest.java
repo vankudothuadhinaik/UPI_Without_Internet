@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -78,6 +79,22 @@ class IdempotencyConcurrencyTest {
         BigDecimal bobAfter = accounts.findById("bob@demo").orElseThrow().getBalance();
         assertEquals(aliceBefore.subtract(new BigDecimal("100.00")), aliceAfter);
         assertEquals(bobBefore.add(new BigDecimal("100.00")), bobAfter);
+    }
+
+    @Test
+    void staleOwnerCannotReleaseAReplacementRedisClaim() {
+        String packetHash = "owner-fence-" + UUID.randomUUID();
+        String firstOwner = idempotency.claim(packetHash);
+        assertNotNull(firstOwner);
+
+        assertFalse(idempotency.release(packetHash, "stale-owner-token"));
+        assertNull(idempotency.claim(packetHash));
+
+        assertTrue(idempotency.release(packetHash, firstOwner));
+        String replacementOwner = idempotency.claim(packetHash);
+        assertNotNull(replacementOwner);
+        assertNotEquals(firstOwner, replacementOwner);
+        assertTrue(idempotency.release(packetHash, replacementOwner));
     }
 
     @Test
