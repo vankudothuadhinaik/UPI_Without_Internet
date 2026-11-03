@@ -23,15 +23,11 @@ import java.util.UUID;
  * Orchestrates the full server-side pipeline for one inbound packet from a
  * bridge node:
  *
- *   1. Hash the ciphertext.
- *   2. Try to claim that hash via the idempotency cache.
- *      - If already claimed: this is a duplicate. Drop it.
- *   3. Decrypt the ciphertext with the server's private key.
- *      - If decryption fails: tampered or junk. Reject.
- *   4. Verify digital signature using the sender's registered public key.
- *      - If signature invalid: forged or corrupted. Reject.
- *   5. Check freshness — reject if signedAt is too old (replay protection).
- *   6. Hand off to SettlementService for the actual debit/credit.
+ *   1. Hash and decrypt the ciphertext.
+ *   2. Verify the sender's registered public key and signed instruction.
+ *   3. Validate nonce, amount, signedAt, and expiresAt.
+ *   4. Atomically claim the validated ciphertext hash using an ownership token.
+ *   5. Hand off to SettlementService for the actual debit/credit.
  */
 @Service
 public class BridgeIngestionService {
