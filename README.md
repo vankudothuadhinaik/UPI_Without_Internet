@@ -93,7 +93,7 @@ The demo allows you to generate an encrypted payment QR code and follow the tran
 | **API**                   | REST APIs                              |
 | **Security**              | RSA-OAEP,AES-256-GCM, RSA-PSS, SHA-256 |
 | **Database**              | H2 for development, PostgreSQL support |
-| **Caching / Idempotency** | ConcurrentHashMap, Redis support       |
+| **Caching / Idempotency** | Redis owner-token claims; local dev fallback |
 | **QR Generation**         | ZXing                                  |
 | **Frontend / Dashboard**  | Thymeleaf                              |
 | **API Documentation**     | OpenAPI 3 / Swagger UI                 |
