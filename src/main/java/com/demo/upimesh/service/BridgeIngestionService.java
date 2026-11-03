@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.security.PublicKey;
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Orchestrates the full server-side pipeline for one inbound packet from a
@@ -95,9 +96,15 @@ public class BridgeIngestionService {
             String nonce = instruction.getNonce();
             Long signedAt = instruction.getSignedAt();
             Long expiresAt = instruction.getExpiresAt();
-            if (nonce == null || nonce.isBlank() || nonce.length() > 128
-                    || signedAt == null || expiresAt == null) {
+            if (nonce == null || signedAt == null || expiresAt == null) {
                 return IngestResult.invalid(packetHash, "invalid_payment_metadata");
+            }
+            try {
+                if (!UUID.fromString(nonce).toString().equalsIgnoreCase(nonce)) {
+                    return IngestResult.invalid(packetHash, "invalid_nonce");
+                }
+            } catch (IllegalArgumentException e) {
+                return IngestResult.invalid(packetHash, "invalid_nonce");
             }
             if (maxAgeSeconds <= 0) {
                 return IngestResult.invalid(packetHash, "invalid_server_policy");
