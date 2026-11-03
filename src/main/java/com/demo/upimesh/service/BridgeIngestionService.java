@@ -74,10 +74,11 @@ public class BridgeIngestionService {
                 return IngestResult.invalid(packetHash, "missing_sender_key");
             }
 
-            PublicKey senderPubKey = identity.getPublicKey(fingerprint);
+            PublicKey senderPubKey = identity.getPublicKeyForVpa(
+                    instruction.getSenderVpa(), fingerprint);
             if (senderPubKey == null) {
-                log.warn("Unknown sender public key fingerprint: {}", fingerprint);
-                return IngestResult.invalid(packetHash, "unknown_sender_key");
+                log.warn("Sender key is not registered to claimed VPA {}", instruction.getSenderVpa());
+                return IngestResult.invalid(packetHash, "sender_key_mismatch");
             }
 
             boolean signatureValid = sigService.verify(
@@ -88,8 +89,18 @@ public class BridgeIngestionService {
                 return IngestResult.invalid(packetHash, "signature_verification_failed");
             }
 
-            // ---- Freshness check (replay protection) ----
-            long ageSeconds = (Instant.now().toEpochMilli() - instruction.getSignedAt()) / 1000;
+            // ---- Freshness and expiry checks (replay protection) ----
+            Long signedAt = instruction.getSignedAt();
+            Long expiresAt = instruction.getExpiresAt();
+            long nowMillis = Instant.now().toEpochMilli();
+            if (signedAt == null || expiresAt == null || expiresAt <= signedAt) {
+                return IngestResult.invalid(packetHash, "invalid_packet_timestamps");
+            }
+            if (expiresAt <= nowMillis) {
+                return IngestResult.invalid(packetHash, "expired_packet");
+            }
+
+            long ageSeconds = (nowMillis - signedAt) / 1000;
             if (ageSeconds > maxAgeSeconds) {
                 log.warn("Packet {} too old ({}s), rejected",
                         packetHash.substring(0, 12) + "...", ageSeconds);
