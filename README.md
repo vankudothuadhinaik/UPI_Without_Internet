@@ -1,16 +1,18 @@
 [![Java CI](https://github.com/vankudothuadhinaik/UPI_Without_Internet/actions/workflows/ci.yml/badge.svg)](https://github.com/vankudothuadhinaik/UPI_Without_Internet/actions)
 
-# **🔐 UPI Offline Mesh — Cryptographic Offline Payments**
+# **🔐 UPI Offline Mesh — Offline Payment Simulation**
 
 [![Java 17](https://img.shields.io/badge/Java-17-blue)](https://adoptium.net/)
 [![Spring Boot 3.3](https://img.shields.io/badge/Spring%20Boot-3.3-green)](https://spring.io/projects/spring-boot)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-&gt; **Offline peer-to-peer payments with cryptographic settlement.**
+&gt; **A backend prototype for encrypted offline-payment message simulation and idempotent settlement.**
 &gt;
 &gt; Two devices with zero network connectivity can exchange payment information through encrypted QR codes. When a device or bridge regains connectivity, the transaction can be forwarded to the backend settlement gateway for verification and idempotent processing.
 
 &gt; ⚠️ **Current Status:** This repository implements the **backend settlement gateway**, **QR-code payment simulation**, and **server-side mesh/store-and-forward simulation**. Native Bluetooth LE / WiFi Direct transport and Android integration are planned future work.
+&gt;
+&gt; **Security warning:** The current REST API does not implement user authentication, authorization, or authenticated bridge-node identity. Demo operations can create simulated transactions, and account/transaction endpoints expose application data. The server generates its demo RSA keypair at startup; production key management is not implemented. Run only in an isolated local/test environment. Do not expose this service to the public internet or use it for real payments.
 
 ---
 
@@ -157,7 +159,7 @@ This is still a prototype. Do not use production-profile configuration as eviden
 | `GET`  | `/api/demo/qr`       | Generate an encrypted payment QR               |
 | `POST` | `/api/mesh/gossip`   | Execute a mesh gossip propagation round        |
 | `POST` | `/api/mesh/flush`    | Flush queued bridge transactions               |
-| `POST` | `/api/bridge/ingest` | Submit a transaction to the settlement gateway |
+| `POST` | `/api/bridge/ingest` | Submit a transaction to the simulated settlement gateway |
 | `GET`  | `/api/accounts`      | Retrieve account information                   |
 | `GET`  | `/api/transactions`  | Retrieve transaction history                   |
 
