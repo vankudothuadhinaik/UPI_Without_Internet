@@ -5,10 +5,12 @@ import com.demo.upimesh.crypto.HybridCryptoService;
 import com.demo.upimesh.model.MeshPacket;
 import com.demo.upimesh.model.PaymentInstruction;
 import com.demo.upimesh.model.Transaction;
+import com.demo.upimesh.model.TransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.security.PublicKey;
@@ -38,6 +40,7 @@ public class BridgeIngestionService {
     @Autowired private DeviceIdentityService identity;
     @Autowired private IdempotencyService idempotency;
     @Autowired private SettlementService settlement;
+    @Autowired private TransactionRepository transactions;
 
     @Value("${upi.mesh.packet-max-age-seconds:86400}")
     private long maxAgeSeconds;
@@ -88,19 +91,59 @@ public class BridgeIngestionService {
                 return IngestResult.invalid(packetHash, "signature_verification_failed");
             }
 
-            // ---- Freshness check (replay protection) ----
-            long ageSeconds = (Instant.now().toEpochMilli() - instruction.getSignedAt()) / 1000;
-            if (ageSeconds > maxAgeSeconds) {
-                log.warn("Packet {} too old ({}s), rejected",
-                        packetHash.substring(0, 12) + "...", ageSeconds);
-                return IngestResult.invalid(packetHash, "stale_packet");
+            // ---- Payment-intent and freshness validation ----
+            String nonce = instruction.getNonce();
+            Long signedAt = instruction.getSignedAt();
+            Long expiresAt = instruction.getExpiresAt();
+            if (nonce == null || nonce.isBlank() || nonce.length() > 128
+                    || signedAt == null || expiresAt == null) {
+                return IngestResult.invalid(packetHash, "invalid_payment_metadata");
             }
-            if (ageSeconds < -300) { // small clock-skew tolerance
+            if (maxAgeSeconds <= 0) {
+                return IngestResult.invalid(packetHash, "invalid_server_policy");
+            }
+
+            long maxAgeMillis;
+            long validityWindowMillis;
+            long ageMillis;
+            long nowMillis = Instant.now().toEpochMilli();
+            try {
+                maxAgeMillis = Math.multiplyExact(maxAgeSeconds, 1000L);
+                validityWindowMillis = Math.subtractExact(expiresAt, signedAt);
+                ageMillis = Math.subtractExact(nowMillis, signedAt);
+            } catch (ArithmeticException e) {
+                return IngestResult.invalid(packetHash, "invalid_payment_timestamps");
+            }
+
+            if (validityWindowMillis <= 0 || validityWindowMillis > maxAgeMillis) {
+                return IngestResult.invalid(packetHash, "invalid_expiry_window");
+            }
+            if (ageMillis < -300_000L) { // five-minute clock-skew tolerance
                 return IngestResult.invalid(packetHash, "future_dated");
+            }
+            if (expiresAt <= nowMillis) {
+                return IngestResult.invalid(packetHash, "expired_packet");
+            }
+            if (ageMillis > maxAgeMillis) {
+                log.warn("Packet {} too old ({}ms), rejected",
+                        packetHash.substring(0, 12) + "...", ageMillis);
+                return IngestResult.invalid(packetHash, "stale_packet");
             }
 
             // ---- Settle ----
-            Transaction tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
+            Transaction tx;
+            try {
+                tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
+            } catch (DataIntegrityViolationException e) {
+                // The transaction has rolled back before this check. A committed row
+                // with the same nonce or ciphertext means another delivery won.
+                if (transactions.existsByNonce(nonce)
+                        || transactions.existsByPacketHash(packetHash)) {
+                    keepClaim = true;
+                    return IngestResult.duplicate(packetHash);
+                }
+                throw e;
+            }
             if (tx == null) {
                 // The database uniqueness constraint confirmed this packet already
                 // has a durable record; retain the claim as a fast-path hint.
