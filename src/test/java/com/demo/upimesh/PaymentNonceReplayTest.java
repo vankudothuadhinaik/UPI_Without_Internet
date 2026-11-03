@@ -52,6 +52,9 @@ class PaymentNonceReplayTest {
         assertEquals("DUPLICATE_DROPPED", second.outcome());
         assertTrue(transactions.existsByNonce(nonce));
         assertEquals(1, transactions.countByNonce(nonce));
+        assertEquals(
+                new BigDecimal("75.00"),
+                accounts.findById(senderVpa).orElseThrow().getBalance());
     }
 
     @Test
