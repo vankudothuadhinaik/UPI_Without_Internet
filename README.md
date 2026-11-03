@@ -446,7 +446,7 @@ Planned improvements include:
 
 ### Idempotency store availability
 
-The single-process development profile explicitly permits a local in-memory fallback when Redis is unavailable. The production profile disables this fallback: if Redis cannot claim a packet hash, ingestion fails closed instead of pretending a process-local map can prevent duplicate settlement across multiple application instances. This is a safety property of the simulation, not a claim of production payment readiness.
+The single-process development profile explicitly permits a local in-memory fallback when Redis is unavailable. The production profile disables this fallback: if Redis cannot claim a packet hash, ingestion fails closed instead of pretending a process-local map can prevent duplicate settlement across multiple application instances. This is a safety property of the simulation, not a claim of production payment readiness. Each Redis claim stores a unique owner token, and release uses an atomic compare-and-delete script. A delayed worker therefore cannot delete a newer worker's claim after the original TTL expires. The database's unique packet-hash and payment-nonce constraints remain the durable final guard.
 
 ### **🔐 Security**
 - ~~Digital signatures for sender authentication~~ ✅ Implemented
