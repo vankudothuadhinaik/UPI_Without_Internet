@@ -40,15 +40,15 @@ class IdempotencyServiceFailureTest {
         IdempotencyService service = serviceWithUnavailableRedis();
         ReflectionTestUtils.setField(service, "localFallbackEnabled", true);
 
-        String ownerToken = service.claim("packet-hash");
+        String ownerToken = service.claimWithToken("packet-hash");
         assertNotNull(ownerToken);
-        assertNull(service.claim("packet-hash"));
+        assertNull(service.claimWithToken("packet-hash"));
 
         // A stale worker must not remove a newer owner's claim.
         assertFalse(service.release("packet-hash", "different-owner"));
         assertNull(service.claim("packet-hash"));
 
         assertTrue(service.release("packet-hash", ownerToken));
-        assertNotNull(service.claim("packet-hash"));
+        assertNotNull(service.claimWithToken("packet-hash"));
     }
 }
