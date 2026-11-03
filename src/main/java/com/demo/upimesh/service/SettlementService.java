@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 
 /**
@@ -62,15 +63,12 @@ public class SettlementService {
             Account sender = senderVpa.equals(firstVpa) ? first : second;
             Account receiver = receiverVpa.equals(firstVpa) ? first : second;
 
-            BigDecimal amount = instruction.getAmount();
-            if (amount.signum() <= 0) {
-                throw new IllegalArgumentException("Amount must be positive");
-            }
+            BigDecimal amount = normalizeLedgerAmount(instruction.getAmount());
 
             if (sender.getBalance().compareTo(amount) < 0) {
                 log.warn("Insufficient balance: {} has ₹{}, tried to send ₹{}",
                         sender.getVpa(), sender.getBalance(), amount);
-                return recordRejected(instruction, packetHash, bridgeNodeId, hopCount);
+                return recordRejected(instruction, packetHash, bridgeNodeId, hopCount, amount);
             }
 
             sender.setBalance(sender.getBalance().subtract(amount));
@@ -110,14 +108,30 @@ public class SettlementService {
         }
     }
 
+    private BigDecimal normalizeLedgerAmount(BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            throw new IllegalArgumentException("Amount must be positive");
+        }
+        try {
+            BigDecimal normalized = amount.setScale(2, RoundingMode.UNNECESSARY);
+            if (normalized.precision() > 19) {
+                throw new IllegalArgumentException("Amount exceeds ledger precision");
+            }
+            return normalized;
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException(
+                    "Amount must be exactly representable with two decimal places", e);
+        }
+    }
+
     private Transaction recordRejected(PaymentInstruction instruction, String packetHash,
-                                       String bridgeNodeId, int hopCount) {
+                                       String bridgeNodeId, int hopCount, BigDecimal amount) {
         Transaction tx = new Transaction();
         tx.setPacketHash(packetHash);
             tx.setNonce(instruction.getNonce());
         tx.setSenderVpa(instruction.getSenderVpa());
         tx.setReceiverVpa(instruction.getReceiverVpa());
-        tx.setAmount(instruction.getAmount());
+        tx.setAmount(amount);
         tx.setSignedAt(Instant.ofEpochMilli(instruction.getSignedAt()));
         tx.setSettledAt(Instant.now());
         tx.setBridgeNodeId(bridgeNodeId);
