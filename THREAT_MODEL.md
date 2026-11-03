@@ -73,9 +73,9 @@ This document analyzes the security properties of the backend settlement gateway
 
 **Defense:** Three layers:
 
-1. **`nonce`** - UUID unique per payment intent; same nonce = same packet
-2. **`signedAt` + `expiresAt`** - Time-bounded validity (default 24h)
-3. **Idempotency cache + DB unique constraint** - Prevents duplicate settlement even if nonce is forgotten
+1. **`nonce`** - Canonical UUID unique per payment intent and persisted under a database unique constraint
+2. **`signedAt` + `expiresAt`** - The gateway validates the signed time window, rejects expired packets, and caps validity to the configured maximum age (default 24h)
+3. **Ciphertext-hash cache + durable nonce uniqueness** - Prevents repeated settlement even when the same signed instruction is re-encrypted into different ciphertexts
 
 **Residual risk:** If clock skew exceeds 5 minutes, future-dated packets are rejected. If server clock is manipulated, time checks fail.
 
@@ -87,9 +87,9 @@ This document analyzes the security properties of the backend settlement gateway
 
 **Defense:** Three layers:
 
-1. **`ConcurrentHashMap` idempotency cache** - Fast in-memory duplicate detection
-2. **DB unique index on `packetHash`** - Persistent duplicate protection
-3. **`@Version` optimistic locking on Account** - Prevents lost-update race conditions during debit/credit
+1. **Redis idempotency claim on ciphertext hash** - Fast duplicate detection for identical deliveries
+2. **DB unique constraints on both `packetHash` and signed payment `nonce`** - Persistent duplicate protection even if the same signed instruction is encrypted again with a new AES key/IV
+3. **`@Version` optimistic locking and ordered account locks** - Protect balance updates under concurrency
 
 **Tested:** `IdempotencyConcurrencyTest` simulates 3 threads delivering the same packet concurrently. Exactly 1 settles, 2 are rejected.
 
