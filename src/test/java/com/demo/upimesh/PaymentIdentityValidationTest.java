@@ -104,7 +104,7 @@ class PaymentIdentityValidationTest {
         assertEquals("expired_packet", result.reason());
         verify(identity).getPublicKeyForVpa("alice@demo", "alice-fingerprint");
         verifyNoInteractions(settlement);
-        verify(idempotency).release("packet-hash");
+        verifyNoInteractions(idempotency);
     }
 
 
@@ -126,7 +126,6 @@ class PaymentIdentityValidationTest {
 
         when(crypto.hashCiphertext("ciphertext")).thenReturn("amount-packet-hash");
         when(crypto.decrypt("ciphertext")).thenReturn(instruction);
-        when(idempotency.claim("amount-packet-hash")).thenReturn(true);
         when(identity.getPublicKeyForVpa("alice@demo", "alice-fingerprint"))
                 .thenReturn(senderKey);
         when(signatures.verify(any(byte[].class), eq("valid-signature"), eq(senderKey)))
@@ -149,7 +148,7 @@ class PaymentIdentityValidationTest {
         assertEquals("INVALID", result.outcome());
         assertEquals("invalid_amount", result.reason());
         verifyNoInteractions(settlement);
-        verify(idempotency).release("amount-packet-hash");
+        verifyNoInteractions(idempotency);
     }
 
 }
