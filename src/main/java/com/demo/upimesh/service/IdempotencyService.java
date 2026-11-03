@@ -84,7 +84,7 @@ public class IdempotencyService {
     public int size() {
         try {
             Set<String> keys = redisTemplate.keys(KEY_PREFIX + "*");
-            return keys == null ? localCache.size() : keys.size();
+            return (keys == null ? 0 : keys.size()) + localCache.size();
         } catch (Exception e) {
             return localCache.size();
         }
