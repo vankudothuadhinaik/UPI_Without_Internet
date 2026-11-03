@@ -7,8 +7,8 @@ import java.time.Instant;
 
 /**
  * Permanent record of every settled transaction. Once written, never modified.
- * The packetHash is the idempotency key — uniqueness is enforced at the DB level
- * as a defense-in-depth fallback if the Redis-style cache layer ever fails.
+ * Both packetHash and the signed payment nonce are unique at the DB level. The
+ * nonce remains stable across randomized re-encryption of the same payment intent.
  */
 @Entity
 @Table(name = "transactions",
@@ -21,6 +21,9 @@ public class Transaction {
 
     @Column(nullable = false, unique = true, length = 64)
     private String packetHash; // SHA-256 hex of the encrypted packet
+
+    @Column(nullable = false, unique = true, length = 128)
+    private String nonce; // Stable payment-intent idempotency key, independent of ciphertext
 
     @Column(nullable = false)
     private String senderVpa;
@@ -56,6 +59,9 @@ public class Transaction {
 
     public String getPacketHash() { return packetHash; }
     public void setPacketHash(String packetHash) { this.packetHash = packetHash; }
+
+    public String getNonce() { return nonce; }
+    public void setNonce(String nonce) { this.nonce = nonce; }
 
     public String getSenderVpa() { return senderVpa; }
     public void setSenderVpa(String senderVpa) { this.senderVpa = senderVpa; }

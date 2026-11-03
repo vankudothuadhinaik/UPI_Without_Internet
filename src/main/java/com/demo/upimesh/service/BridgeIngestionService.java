@@ -5,14 +5,19 @@ import com.demo.upimesh.crypto.HybridCryptoService;
 import com.demo.upimesh.model.MeshPacket;
 import com.demo.upimesh.model.PaymentInstruction;
 import com.demo.upimesh.model.Transaction;
+import com.demo.upimesh.model.TransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.security.PublicKey;
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Orchestrates the full server-side pipeline for one inbound packet from a
@@ -38,6 +43,7 @@ public class BridgeIngestionService {
     @Autowired private DeviceIdentityService identity;
     @Autowired private IdempotencyService idempotency;
     @Autowired private SettlementService settlement;
+    @Autowired private TransactionRepository transactions;
 
     @Value("${upi.mesh.packet-max-age-seconds:86400}")
     private long maxAgeSeconds;
@@ -89,6 +95,21 @@ public class BridgeIngestionService {
                 return IngestResult.invalid(packetHash, "signature_verification_failed");
             }
 
+            // The signed nonce is stable across randomized re-encryption. Require
+            // its canonical UUID representation before using it as a ledger key.
+            String nonce = instruction.getNonce();
+            try {
+                if (nonce == null || !UUID.fromString(nonce).toString().equalsIgnoreCase(nonce)) {
+                    return IngestResult.invalid(packetHash, "invalid_nonce");
+                }
+            } catch (IllegalArgumentException e) {
+                return IngestResult.invalid(packetHash, "invalid_nonce");
+            }
+            // Reject amounts that the two-decimal ledger cannot represent exactly.
+            if (!hasValidLedgerAmount(instruction.getAmount())) {
+                return IngestResult.invalid(packetHash, "invalid_amount");
+            }
+
             // ---- Freshness and expiry checks (replay protection) ----
             Long signedAt = instruction.getSignedAt();
             Long expiresAt = instruction.getExpiresAt();
@@ -111,12 +132,18 @@ public class BridgeIngestionService {
             }
 
             // ---- Settle ----
-            Transaction tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
-            if (tx == null) {
-                // The database uniqueness constraint confirmed this packet already
-                // has a durable record; retain the claim as a fast-path hint.
-                keepClaim = true;
-                return IngestResult.duplicate(packetHash);
+            Transaction tx;
+            try {
+                tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
+            } catch (DataIntegrityViolationException e) {
+                // The failed settlement transaction has rolled back before this
+                // query. A committed row with the same nonce/ciphertext won the race.
+                if (transactions.existsByNonce(nonce)
+                        || transactions.existsByPacketHash(packetHash)) {
+                    keepClaim = true;
+                    return IngestResult.duplicate(packetHash);
+                }
+                throw e;
             }
             keepClaim = true;
             return IngestResult.settled(packetHash, tx);
@@ -131,6 +158,17 @@ public class BridgeIngestionService {
             if (claimAcquired && !keepClaim && claimedHash != null) {
                 idempotency.release(claimedHash);
             }
+        }
+    }
+
+    private static boolean hasValidLedgerAmount(BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            return false;
+        }
+        try {
+            return amount.setScale(2, RoundingMode.UNNECESSARY).precision() <= 19;
+        } catch (ArithmeticException e) {
+            return false;
         }
     }
 

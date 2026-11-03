@@ -189,7 +189,7 @@ AES-256-GCM provides:
 RSA-OAEP is used for protecting the symmetric encryption key rather than encrypting the entire payment payload directly. This combines the efficiency of symmetric encryption with asymmetric key protection.
 
 **2. Transaction Fingerprinting**
-Transactions use a SHA-256 based fingerprint for identifying duplicate transaction submissions.
+Identical ciphertext deliveries use a SHA-256 fingerprint for the fast idempotency cache. Each signed payment instruction also carries a stable UUID nonce that is stored under a database unique constraint, so re-encrypting the same signed instruction cannot create a second settlement.
 
 Transaction Data
        │
@@ -225,14 +225,14 @@ This is particularly important in a store-and-forward system where the same tran
 **4. Transaction Freshness & Replay Defense**
 
 Each `PaymentInstruction` contains:
-- **`nonce`** — a UUID unique to the payment intent
+- **`nonce`** — a canonical UUID unique to the payment intent and stored under a database unique constraint
 - **`signedAt`** — epoch millis when the sender signed
 - **`expiresAt`** — epoch millis when the payment expires (default 24h)
 
 The settlement gateway rejects packets where:
 - `age` exceeds `maxAgeSeconds` (configurable, default 86400)
 - `age` is more than 5 minutes in the future (clock-skew tolerance)
-- `nonce` has already been seen (idempotency)
+- the same signed `nonce` has already been recorded, even if a new ciphertext was generated
 
 This provides explicit replay-attack protection within the configured time window.
 

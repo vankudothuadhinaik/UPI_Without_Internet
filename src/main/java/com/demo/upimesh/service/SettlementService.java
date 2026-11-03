@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 
 /**
@@ -20,11 +21,11 @@ import java.time.Instant;
  * BOTH the debit and credit happen, or neither does.
  *
  * Defense-in-depth idempotency:
- *   Layer 1: IdempotencyService.claim() — fast in-memory/Redis cache check
- *   Layer 2: DB unique constraint on transaction.packetHash — final guard
+ *   Layer 1: IdempotencyService.claim() — fast Redis ciphertext-hash claim
+ *   Layer 2: DB unique constraints on packetHash and signed payment nonce
  *
- * If two threads pass Layer 1 simultaneously, Layer 2 rejects the second one
- * with DataIntegrityViolationException, which we catch and return DUPLICATE.
+ * A uniqueness conflict is rethrown so this transaction fully rolls back. The
+ * ingestion layer classifies it as a duplicate only after the rollback completes.
  *
  * The @Version column on Account gives us optimistic locking — if two threads
  * somehow get past both layers and both try to debit the same account, the
@@ -62,15 +63,12 @@ public class SettlementService {
             Account sender = senderVpa.equals(firstVpa) ? first : second;
             Account receiver = receiverVpa.equals(firstVpa) ? first : second;
 
-            BigDecimal amount = instruction.getAmount();
-            if (amount.signum() <= 0) {
-                throw new IllegalArgumentException("Amount must be positive");
-            }
+            BigDecimal amount = normalizeLedgerAmount(instruction.getAmount());
 
             if (sender.getBalance().compareTo(amount) < 0) {
                 log.warn("Insufficient balance: {} has ₹{}, tried to send ₹{}",
                         sender.getVpa(), sender.getBalance(), amount);
-                return recordRejected(instruction, packetHash, bridgeNodeId, hopCount);
+                return recordRejected(instruction, packetHash, bridgeNodeId, hopCount, amount);
             }
 
             sender.setBalance(sender.getBalance().subtract(amount));
@@ -80,6 +78,7 @@ public class SettlementService {
 
             Transaction tx = new Transaction();
             tx.setPacketHash(packetHash);
+            tx.setNonce(instruction.getNonce());
             tx.setSenderVpa(instruction.getSenderVpa());
             tx.setReceiverVpa(instruction.getReceiverVpa());
             tx.setAmount(amount);
@@ -89,9 +88,8 @@ public class SettlementService {
             tx.setHopCount(hopCount);
             tx.setStatus(Transaction.Status.SETTLED);
 
-            // Layer 2: DB unique constraint is the final guard.
-            // If another thread inserted this packetHash between our cache check and now,
-            // this save() throws DataIntegrityViolationException — we catch it below.
+            // The unique packetHash and nonce constraints are the durable final guard.
+            // A conflict aborts this entire transaction, including both balance updates.
             transactions.save(tx);
 
             log.info("SETTLED ₹{} from {} to {} (packetHash={}, bridge={}, hops={})",
@@ -101,20 +99,39 @@ public class SettlementService {
             return tx;
 
         } catch (DataIntegrityViolationException e) {
-            // Layer 2 triggered: Another thread won the race and inserted first.
-            // This is EXPECTED under high concurrency, not a bug.
-            log.info("DUPLICATE_DROPPED (DB constraint) — packetHash={}", packetHash.substring(0, 12));
-            return null; // Caller treats null as duplicate
+            // Let the transaction roll back before the ingestion layer classifies
+            // the durable unique-key conflict. Returning normally here can leave
+            // the Spring transaction marked rollback-only and fail at commit.
+            log.info("Unique transaction constraint conflict — packetHash={}",
+                    packetHash.substring(0, 12));
+            throw e;
+        }
+    }
+
+    private BigDecimal normalizeLedgerAmount(BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            throw new IllegalArgumentException("Amount must be positive");
+        }
+        try {
+            BigDecimal normalized = amount.setScale(2, RoundingMode.UNNECESSARY);
+            if (normalized.precision() > 19) {
+                throw new IllegalArgumentException("Amount exceeds ledger precision");
+            }
+            return normalized;
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException(
+                    "Amount must be exactly representable with two decimal places", e);
         }
     }
 
     private Transaction recordRejected(PaymentInstruction instruction, String packetHash,
-                                       String bridgeNodeId, int hopCount) {
+                                       String bridgeNodeId, int hopCount, BigDecimal amount) {
         Transaction tx = new Transaction();
         tx.setPacketHash(packetHash);
+            tx.setNonce(instruction.getNonce());
         tx.setSenderVpa(instruction.getSenderVpa());
         tx.setReceiverVpa(instruction.getReceiverVpa());
-        tx.setAmount(instruction.getAmount());
+        tx.setAmount(amount);
         tx.setSignedAt(Instant.ofEpochMilli(instruction.getSignedAt()));
         tx.setSettledAt(Instant.now());
         tx.setBridgeNodeId(bridgeNodeId);
