@@ -27,14 +27,13 @@ class BridgeIngestionClaimReleaseTest {
     @InjectMocks private BridgeIngestionService ingestion;
 
     @Test
-    void malformedCiphertextReleasesProvisionalIdempotencyClaim() throws Exception {
+    void malformedCiphertextDoesNotReserveIdempotencyClaim() throws Exception {
         MeshPacket packet = new MeshPacket();
         packet.setPacketId("packet-1");
         packet.setCiphertext("not-valid-ciphertext");
         packet.setCreatedAt(System.currentTimeMillis());
 
         when(crypto.hashCiphertext(packet.getCiphertext())).thenReturn("packet-hash-long");
-        when(idempotency.claim("packet-hash-long")).thenReturn(true);
         when(crypto.decrypt(packet.getCiphertext()))
                 .thenThrow(new IllegalArgumentException("bad ciphertext"));
 
@@ -43,7 +42,7 @@ class BridgeIngestionClaimReleaseTest {
 
         assertEquals("INVALID", result.outcome());
         assertEquals("decryption_failed", result.reason());
-        verify(idempotency).release("packet-hash-long");
+        verifyNoInteractions(idempotency);
         verifyNoInteractions(settlement);
     }
 }
