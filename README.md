@@ -189,7 +189,7 @@ AES-256-GCM provides:
 RSA-OAEP is used for protecting the symmetric encryption key rather than encrypting the entire payment payload directly. This combines the efficiency of symmetric encryption with asymmetric key protection.
 
 **2. Transaction Fingerprinting**
-Transactions use a SHA-256 based fingerprint for identifying duplicate transaction submissions.
+Identical ciphertext deliveries use a SHA-256 fingerprint for the fast idempotency cache. Each signed payment instruction also carries a stable UUID nonce that is stored under a database unique constraint, so re-encrypting the same signed instruction cannot create a second settlement.
 
 Transaction Data
        │
