@@ -34,7 +34,7 @@ class BridgeIngestionClaimReleaseTest {
         packet.setCreatedAt(System.currentTimeMillis());
 
         when(crypto.hashCiphertext(packet.getCiphertext())).thenReturn("packet-hash-long");
-        when(idempotency.claim("packet-hash-long")).thenReturn(true);
+        when(idempotency.claim("packet-hash-long")).thenReturn("claim-token");
         when(crypto.decrypt(packet.getCiphertext()))
                 .thenThrow(new IllegalArgumentException("bad ciphertext"));
 
@@ -43,7 +43,7 @@ class BridgeIngestionClaimReleaseTest {
 
         assertEquals("INVALID", result.outcome());
         assertEquals("decryption_failed", result.reason());
-        verify(idempotency).release("packet-hash-long");
+        verify(idempotency).release("packet-hash-long", "claim-token");
         verifyNoInteractions(settlement);
     }
 }
