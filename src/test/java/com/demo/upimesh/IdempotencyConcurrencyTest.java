@@ -109,4 +109,21 @@ class IdempotencyConcurrencyTest {
         assertEquals(0, original.getAmount().compareTo(decrypted.getAmount()));
         assertEquals(original.getNonce(), decrypted.getNonce());
     }
+
+
+    @Test
+    void staleOwnerCannotReleaseAnotherOwnersClaim() {
+        String packetHash = "ownership-test-" + java.util.UUID.randomUUID();
+        String firstOwner = idempotency.claimWithToken(packetHash);
+        assertNotNull(firstOwner);
+
+        idempotency.release(packetHash, "not-the-owner");
+        assertNull(idempotency.claimWithToken(packetHash));
+
+        idempotency.release(packetHash, firstOwner);
+        String secondOwner = idempotency.claimWithToken(packetHash);
+        assertNotNull(secondOwner);
+        idempotency.release(packetHash, secondOwner);
+    }
+
 }
