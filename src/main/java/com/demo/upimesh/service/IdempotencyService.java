@@ -3,19 +3,24 @@ package com.demo.upimesh.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class IdempotencyService {
 
+    private static final String KEY_PREFIX = "upi:packet:";
+    private static final Duration CLAIM_TTL = Duration.ofHours(24);
     private static final Logger log = LoggerFactory.getLogger(IdempotencyService.class);
     private static final DefaultRedisScript<Long> RELEASE_IF_OWNER = new DefaultRedisScript<>();
 
@@ -43,11 +48,12 @@ public class IdempotencyService {
      * Atomically claim a packet hash and return the unique owner token.
      * A null result means another worker already owns the claim.
      */
-    public String claim(String packetHash) {
+    public String claimWithToken(String packetHash) {
+        String key = keyFor(packetHash);
         String claimToken = UUID.randomUUID().toString();
         try {
             Boolean success = redisTemplate.opsForValue()
-                    .setIfAbsent(packetHash, claimToken, Duration.ofHours(24));
+                    .setIfAbsent(key, claimToken, CLAIM_TTL);
             return Boolean.TRUE.equals(success) ? claimToken : null;
         } catch (Exception e) {
             if (!localFallbackEnabled) {
@@ -55,27 +61,30 @@ public class IdempotencyService {
                 throw new IllegalStateException(
                         "Redis idempotency store unavailable; refusing to claim payment packet", e);
             }
-            return localCache.putIfAbsent(packetHash, claimToken) == null
-                    ? claimToken
-                    : null;
+            return localCache.putIfAbsent(key, claimToken) == null ? claimToken : null;
         }
+    }
+
+    /** Backwards-compatible claim check for callers that do not need to release a claim. */
+    public boolean claim(String packetHash) {
+        return claimWithToken(packetHash) != null;
     }
 
     /**
      * Release only the claim owned by this token. A delayed worker must never
-     * delete a newer worker's claim after the original Redis TTL has expired.
+     * delete a newer worker's claim after the original Redis TTL expires.
      */
     public boolean release(String packetHash, String claimToken) {
         if (packetHash == null || claimToken == null) {
             return false;
         }
+        String key = keyFor(packetHash);
         try {
             Long deleted = redisTemplate.execute(
-                    RELEASE_IF_OWNER, Collections.singletonList(packetHash), claimToken);
-            return (deleted != null && deleted > 0)
-                    || localCache.remove(packetHash, claimToken);
+                    RELEASE_IF_OWNER, List.of(key), claimToken);
+            return (deleted != null && deleted > 0) || localCache.remove(key, claimToken);
         } catch (Exception e) {
-            boolean releasedLocally = localCache.remove(packetHash, claimToken);
+            boolean releasedLocally = localCache.remove(key, claimToken);
             if (!releasedLocally) {
                 log.warn("Could not release Redis idempotency claim for packet {}", packetHash);
             }
@@ -83,23 +92,42 @@ public class IdempotencyService {
         }
     }
 
-    // Methods needed by ApiController
+    // Methods used by the demo reset/dashboard endpoints.
     public int size() {
-        try {
-            // Redis doesn't have a simple size for all keys, so we use local cache size as proxy in dev
-            // In production, this would use Redis SCAN or INFO keyspace
-            return localCache.size();
+        int count = localCache.size();
+        try (Cursor<String> cursor = redisTemplate.scan(
+                ScanOptions.scanOptions().match(KEY_PREFIX + "*").count(100).build())) {
+            while (cursor.hasNext()) {
+                cursor.next();
+                count++;
+            }
         } catch (Exception e) {
-            return localCache.size();
+            log.warn("Could not scan Redis idempotency keys for size");
         }
+        return count;
     }
 
     public void clear() {
-        try {
-            // Note: In production with Redis, this would flush the specific prefix, not all keys
-            localCache.clear();
+        localCache.clear();
+        try (Cursor<String> cursor = redisTemplate.scan(
+                ScanOptions.scanOptions().match(KEY_PREFIX + "*").count(100).build())) {
+            List<String> batch = new ArrayList<>(100);
+            while (cursor.hasNext()) {
+                batch.add(cursor.next());
+                if (batch.size() == 100) {
+                    redisTemplate.delete(batch);
+                    batch.clear();
+                }
+            }
+            if (!batch.isEmpty()) {
+                redisTemplate.delete(batch);
+            }
         } catch (Exception e) {
-            localCache.clear();
+            log.warn("Could not clear namespaced Redis idempotency keys");
         }
+    }
+
+    private static String keyFor(String packetHash) {
+        return KEY_PREFIX + packetHash;
     }
 }
