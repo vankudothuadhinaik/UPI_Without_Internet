@@ -52,11 +52,13 @@ public class BridgeIngestionService {
         boolean claimAcquired = false;
         boolean keepClaim = false;
         String claimedHash = null;
+        String claimToken = null;
         try {
             String packetHash = crypto.hashCiphertext(packet.getCiphertext());
 
             // ---- Idempotency gate ----
-            if (!idempotency.claim(packetHash)) {
+            claimToken = idempotency.claim(packetHash);
+            if (claimToken == null) {
                 log.info("DUPLICATE packet {} from bridge {} — dropped",
                         packetHash.substring(0, 12) + "...", bridgeNodeId);
                 return IngestResult.duplicate(packetHash);
@@ -156,7 +158,7 @@ public class BridgeIngestionService {
             // Release invalid/decryption/signature/freshness failures and transient
             // processing errors so a retry is not blocked for the full Redis TTL.
             if (claimAcquired && !keepClaim && claimedHash != null) {
-                idempotency.release(claimedHash);
+                idempotency.release(claimedHash, claimToken);
             }
         }
     }
