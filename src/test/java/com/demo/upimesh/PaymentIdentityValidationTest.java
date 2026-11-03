@@ -80,7 +80,6 @@ class PaymentIdentityValidationTest {
 
         when(crypto.hashCiphertext("ciphertext")).thenReturn("packet-hash");
         when(crypto.decrypt("ciphertext")).thenReturn(instruction);
-        when(idempotency.claim("packet-hash")).thenReturn(true);
         when(identity.getPublicKeyForVpa("alice@demo", "alice-fingerprint"))
                 .thenReturn(senderKey);
         when(signatures.verify(any(byte[].class), eq("valid-signature"), eq(senderKey)))
