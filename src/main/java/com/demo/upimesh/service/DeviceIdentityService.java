@@ -72,6 +72,40 @@ public class DeviceIdentityService {
     }
 
     /**
+     * Resolve a signing key only when it is currently registered to the claimed
+     * sender VPA. A valid signature from some other registered account must not
+     * authorize a payment that names this VPA as its sender.
+     */
+    public PublicKey getPublicKeyForVpa(String vpa, String fingerprint) throws Exception {
+        if (vpa == null || vpa.isBlank() || fingerprint == null || fingerprint.isBlank()) {
+            return null;
+        }
+
+        Account account = accounts.findById(vpa).orElse(null);
+        if (account == null || !fingerprint.equals(account.getPublicKeyFingerprint())) {
+            return null;
+        }
+
+        PublicKey cached = keyCache.get(fingerprint);
+        if (cached != null) {
+            return cached;
+        }
+
+        String encoded = account.getPublicKeyBase64();
+        if (encoded == null || encoded.isBlank()) {
+            return null;
+        }
+
+        PublicKey publicKey = sigService.decodePublicKey(encoded);
+        if (!fingerprint.equals(sigService.fingerprint(publicKey))) {
+            return null;
+        }
+
+        PublicKey existing = keyCache.putIfAbsent(fingerprint, publicKey);
+        return existing == null ? publicKey : existing;
+    }
+
+    /**
      * Check whether a device is registered for a VPA.
      */
     public boolean isRegistered(String vpa) {
