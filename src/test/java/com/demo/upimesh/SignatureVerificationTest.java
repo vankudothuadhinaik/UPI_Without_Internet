@@ -88,7 +88,6 @@ public class SignatureVerificationTest {
         var second = ingestion.ingest(packet, "bridge-A", 1);
         assertEquals("DUPLICATE_DROPPED", second.outcome());
     }
-}
 
     @Test
     public void registeredKeyCannotAuthorizeAnotherVpa() throws Exception {
@@ -161,3 +160,4 @@ public class SignatureVerificationTest {
         packet.setCiphertext(crypto.encrypt(instruction, serverKey.getPublicKey()));
         return packet;
     }
+}
