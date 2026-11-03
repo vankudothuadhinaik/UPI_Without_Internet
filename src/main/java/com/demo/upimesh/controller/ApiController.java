@@ -16,7 +16,7 @@ import java.util.*;
  * The endpoints split into three groups:
  *   /api/server-key      → so simulated senders can fetch the server's public key
  *   /api/mesh/*          → simulator endpoints (inject, gossip, flush)
- *   /api/bridge/ingest   → THE real production endpoint a real bridge node would hit
+ *   /api/bridge/ingest   → simulated bridge-ingestion endpoint (not production-authenticated)
  *   /api/accounts, /api/transactions → for the dashboard
  */
 @RestController
@@ -149,9 +149,9 @@ public class ApiController {
     // -------------------------------------------------------------- bridge
 
     /**
-     * THE PRODUCTION ENDPOINT.
-     * In a real deployment, the Android app's bridge logic POSTs here whenever
-     * the device has internet and is holding mesh packets.
+     * Simulated bridge-ingestion endpoint.
+     * This prototype does not authenticate bridge identity; do not expose it
+     * to untrusted networks or use it as a real payment endpoint.
      */
     @PostMapping("/bridge/ingest")
     public ResponseEntity<?> ingest(
