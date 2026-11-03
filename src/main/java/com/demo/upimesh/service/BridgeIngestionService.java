@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.security.PublicKey;
 import java.time.Instant;
 import java.util.UUID;
@@ -103,6 +105,11 @@ public class BridgeIngestionService {
             } catch (IllegalArgumentException e) {
                 return IngestResult.invalid(packetHash, "invalid_nonce");
             }
+            // Reject amounts that the two-decimal ledger cannot represent exactly.
+            if (!hasValidLedgerAmount(instruction.getAmount())) {
+                return IngestResult.invalid(packetHash, "invalid_amount");
+            }
+
             // ---- Freshness and expiry checks (replay protection) ----
             Long signedAt = instruction.getSignedAt();
             Long expiresAt = instruction.getExpiresAt();
@@ -151,6 +158,17 @@ public class BridgeIngestionService {
             if (claimAcquired && !keepClaim && claimedHash != null) {
                 idempotency.release(claimedHash);
             }
+        }
+    }
+
+    private static boolean hasValidLedgerAmount(BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            return false;
+        }
+        try {
+            return amount.setScale(2, RoundingMode.UNNECESSARY).precision() <= 19;
+        } catch (ArithmeticException e) {
+            return false;
         }
     }
 
