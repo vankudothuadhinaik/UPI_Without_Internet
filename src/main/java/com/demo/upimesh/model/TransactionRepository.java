@@ -8,4 +8,5 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findTop20ByOrderByIdDesc();
     boolean existsByPacketHash(String packetHash);
     boolean existsByNonce(String nonce);
+    long countByNonce(String nonce);
 }
