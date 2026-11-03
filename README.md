@@ -246,7 +246,7 @@ Future Android integration can use hardware-backed key storage such as:
 
 This is planned future work, not part of the current backend implementation.
 
-### **6. Digital Signatures (Sender Authentication)**
+### **6. Digital Signature Verification (Authentication Boundary)**
 
 Each device generates its own 2048-bit RSA keypair. The private key never leaves the device. The public key is registered with the settlement gateway and linked to the device's VPA.
 
