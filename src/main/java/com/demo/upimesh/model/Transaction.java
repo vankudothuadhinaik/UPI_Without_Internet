@@ -22,6 +22,9 @@ public class Transaction {
     @Column(nullable = false, unique = true, length = 64)
     private String packetHash; // SHA-256 hex of the encrypted packet
 
+    @Column(nullable = false, unique = true, length = 128)
+    private String nonce; // Stable payment-intent idempotency key, independent of ciphertext
+
     @Column(nullable = false)
     private String senderVpa;
 
@@ -56,6 +59,9 @@ public class Transaction {
 
     public String getPacketHash() { return packetHash; }
     public void setPacketHash(String packetHash) { this.packetHash = packetHash; }
+
+    public String getNonce() { return nonce; }
+    public void setNonce(String nonce) { this.nonce = nonce; }
 
     public String getSenderVpa() { return senderVpa; }
     public void setSenderVpa(String senderVpa) { this.senderVpa = senderVpa; }
