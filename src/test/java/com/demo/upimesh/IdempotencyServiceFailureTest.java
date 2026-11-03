@@ -46,7 +46,7 @@ class IdempotencyServiceFailureTest {
 
         // A stale worker must not remove a newer owner's claim.
         assertFalse(service.release("packet-hash", "different-owner"));
-        assertNull(service.claim("packet-hash"));
+        assertFalse(service.claim("packet-hash"));
 
         assertTrue(service.release("packet-hash", ownerToken));
         assertNotNull(service.claimWithToken("packet-hash"));
