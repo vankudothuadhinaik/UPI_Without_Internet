@@ -72,7 +72,8 @@ public class IdempotencyService {
         try {
             Long deleted = redisTemplate.execute(
                     RELEASE_IF_OWNER, Collections.singletonList(packetHash), claimToken);
-            return deleted != null && deleted > 0;
+            return (deleted != null && deleted > 0)
+                    || localCache.remove(packetHash, claimToken);
         } catch (Exception e) {
             boolean releasedLocally = localCache.remove(packetHash, claimToken);
             if (!releasedLocally) {
