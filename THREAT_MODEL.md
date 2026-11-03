@@ -87,7 +87,7 @@ This document analyzes the security properties of the backend settlement gateway
 
 **Defense:** Three layers:
 
-1. **Redis idempotency claim on ciphertext hash** - Fast duplicate detection for identical deliveries
+1. **Redis idempotency claim on ciphertext hash** - Fast duplicate detection for identical deliveries; each claim has a unique owner token and release uses atomic compare-and-delete so an expired worker cannot delete a replacement worker's claim
 2. **DB unique constraints on `packetHash` and signed payment `nonce`** - Durable protection against identical packets and re-encrypted copies of the same payment intent
 3. **Ordered account locks and `@Version` optimistic locking** - Protect balance updates under concurrent settlement
 
