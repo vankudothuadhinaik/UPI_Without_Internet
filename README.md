@@ -12,7 +12,7 @@
 
 &gt; ⚠️ **Current Status:** This repository implements the **backend settlement gateway**, **QR-code payment simulation**, and **server-side mesh/store-and-forward simulation**. Native Bluetooth LE / WiFi Direct transport and Android integration are planned future work.
 &gt;
-&gt; **Security warning:** The current REST API does not implement user authentication, authorization, or authenticated bridge-node identity. Demo operations can create simulated transactions, and account/transaction endpoints expose application data. The server generates its demo RSA keypair at startup; production key management is not implemented. Run only in an isolated local/test environment. Do not expose this service to the public internet or use it for real payments.
+&gt; **Security warning:** The current REST API does not implement user authentication, authorization, or authenticated bridge-node identity. Demo operations can create simulated transactions, and account/transaction endpoints expose application data. The server generates its demo RSA keypair at startup; production key management is not implemented. Run only in an isolated local/test environment. Do not expose this service to the public internet or use it for real payments. Track the required authentication, authorization, and bridge-identity work in [security issue #15](https://github.com/vankudothuadhinaik/UPI_Without_Internet/issues/15).
 
 ---
 
