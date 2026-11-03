@@ -44,10 +44,14 @@ public class DeviceIdentityService {
         Account account = accounts.findById(vpa).orElseThrow(() ->
                 new IllegalArgumentException("Unknown VPA: " + vpa));
 
+        String previousFingerprint = account.getPublicKeyFingerprint();
         account.setPublicKeyFingerprint(fingerprint);
         account.setPublicKeyBase64(pubKeyBase64);
         accounts.save(account);
 
+        if (previousFingerprint != null && !previousFingerprint.equals(fingerprint)) {
+            keyCache.remove(previousFingerprint);
+        }
         keyCache.put(fingerprint, kp.getPublic());
 
         log.info("Registered device key for {} (fingerprint={}...)", vpa, fingerprint.substring(0, 16));
@@ -59,13 +63,17 @@ public class DeviceIdentityService {
      * Uses in-memory cache, falls back to DB.
      */
     public PublicKey getPublicKey(String fingerprint) throws Exception {
+        // Check current registration before consulting the decoded-key cache. This
+        // makes key rotation/revocation effective even when an old key is cached.
+        Account account = accounts.findByPublicKeyFingerprint(fingerprint);
+        if (account == null || account.getPublicKeyBase64() == null) {
+            keyCache.remove(fingerprint);
+            return null;
+        }
+
         PublicKey cached = keyCache.get(fingerprint);
         if (cached != null) return cached;
 
-        Account account = accounts.findByPublicKeyFingerprint(fingerprint);
-        if (account == null || account.getPublicKeyBase64() == null) {
-            return null;
-        }
         PublicKey pk = sigService.decodePublicKey(account.getPublicKeyBase64());
         keyCache.put(fingerprint, pk);
         return pk;
