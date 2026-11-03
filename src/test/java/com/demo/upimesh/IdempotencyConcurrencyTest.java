@@ -84,14 +84,14 @@ class IdempotencyConcurrencyTest {
     @Test
     void staleOwnerCannotReleaseAReplacementRedisClaim() {
         String packetHash = "owner-fence-" + UUID.randomUUID();
-        String firstOwner = idempotency.claim(packetHash);
+        String firstOwner = idempotency.claimWithToken(packetHash);
         assertNotNull(firstOwner);
 
         assertFalse(idempotency.release(packetHash, "stale-owner-token"));
-        assertNull(idempotency.claim(packetHash));
+        assertNull(idempotency.claimWithToken(packetHash));
 
         assertTrue(idempotency.release(packetHash, firstOwner));
-        String replacementOwner = idempotency.claim(packetHash);
+        String replacementOwner = idempotency.claimWithToken(packetHash);
         assertNotNull(replacementOwner);
         assertNotEquals(firstOwner, replacementOwner);
         assertTrue(idempotency.release(packetHash, replacementOwner));

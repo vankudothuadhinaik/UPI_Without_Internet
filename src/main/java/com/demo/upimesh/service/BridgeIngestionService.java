@@ -23,15 +23,11 @@ import java.util.UUID;
  * Orchestrates the full server-side pipeline for one inbound packet from a
  * bridge node:
  *
- *   1. Hash the ciphertext.
- *   2. Try to claim that hash via the idempotency cache.
- *      - If already claimed: this is a duplicate. Drop it.
- *   3. Decrypt the ciphertext with the server's private key.
- *      - If decryption fails: tampered or junk. Reject.
- *   4. Verify digital signature using the sender's registered public key.
- *      - If signature invalid: forged or corrupted. Reject.
- *   5. Check freshness — reject if signedAt is too old (replay protection).
- *   6. Hand off to SettlementService for the actual debit/credit.
+ *   1. Hash and decrypt the ciphertext.
+ *   2. Verify the sender's registered key and signed payment instruction.
+ *   3. Validate nonce, amount, and packet timestamps.
+ *   4. Claim the validated ciphertext hash with a unique owner token.
+ *   5. Hand off to SettlementService for the actual debit/credit.
  */
 @Service
 public class BridgeIngestionService {
@@ -49,7 +45,6 @@ public class BridgeIngestionService {
     private long maxAgeSeconds;
 
     public IngestResult ingest(MeshPacket packet, String bridgeNodeId, int hopCount) {
-        boolean claimAcquired = false;
         boolean keepClaim = false;
         String claimedHash = null;
         String claimToken = null;
@@ -57,15 +52,6 @@ public class BridgeIngestionService {
             String packetHash = crypto.hashCiphertext(packet.getCiphertext());
 
             // ---- Idempotency gate ----
-            claimToken = idempotency.claim(packetHash);
-            if (claimToken == null) {
-                log.info("DUPLICATE packet {} from bridge {} — dropped",
-                        packetHash.substring(0, 12) + "...", bridgeNodeId);
-                return IngestResult.duplicate(packetHash);
-            }
-            claimAcquired = true;
-            claimedHash = packetHash;
-
             // ---- Decrypt ----
             PaymentInstruction instruction;
             try {
@@ -133,6 +119,16 @@ public class BridgeIngestionService {
                 return IngestResult.invalid(packetHash, "future_dated");
             }
 
+            // Claim only after cryptographic and timestamp validation so
+            // malformed traffic cannot reserve idempotency keys.
+            claimToken = idempotency.claimWithToken(packetHash);
+            if (claimToken == null) {
+                log.info("DUPLICATE packet {} from bridge {} — dropped",
+                        packetHash.substring(0, 12) + "...", bridgeNodeId);
+                return IngestResult.duplicate(packetHash);
+            }
+            claimedHash = packetHash;
+
             // ---- Settle ----
             Transaction tx;
             try {
@@ -152,12 +148,12 @@ public class BridgeIngestionService {
 
         } catch (Exception e) {
             log.error("Ingestion error: {}", e.getMessage(), e);
-            return IngestResult.invalid("?", "internal_error: " + e.getMessage());
+            return IngestResult.invalid("?", "internal_error");
         } finally {
             // A claim is provisional until validation and settlement finish.
             // Release invalid/decryption/signature/freshness failures and transient
             // processing errors so a retry is not blocked for the full Redis TTL.
-            if (claimAcquired && !keepClaim && claimedHash != null) {
+            if (claimToken != null && !keepClaim && claimedHash != null) {
                 idempotency.release(claimedHash, claimToken);
             }
         }
