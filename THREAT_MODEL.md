@@ -1,165 +1,112 @@
-# Threat Model - UPI Offline Mesh
+# Threat Model — UPI Offline Mesh
+
+## Status and intended use
+
+This document describes the current repository implementation; it is not a security certification. This is an educational backend simulation. **Run only in an isolated local/test environment. Do not expose it to an untrusted network or use it for real payments.**
+
+The REST API currently has no user authentication or authorization. Demo, mesh, bridge-ingestion, account, and transaction endpoints are not protected by an authenticated user or bridge identity. The `X-Bridge-Node-Id` header is caller-supplied metadata, not proof of identity. See [security issue #15](https://github.com/vankudothuadhinaik/UPI_Without_Internet/issues/15).
 
 ## Scope
 
-This document analyzes the security properties of the backend settlement gateway and the cryptographic protocol used for offline peer-to-peer payment exchange.
+Implemented protocol mechanisms include hybrid encryption, AES-GCM integrity, signed payment instructions, timestamp/nonce validation, and duplicate-settlement controls. The server-side mesh is a simulation; native Bluetooth LE / Wi-Fi Direct transport and Android integration are not implemented.
 
-**In scope:**
+Out of scope for the current prototype: production identity enrollment, authenticated bridge transport, hardware-backed key storage, formal protocol verification, regulatory/payment-rail integration, and production deployment hardening.
 
-- Payment payload confidentiality and integrity
-- Sender authentication
-- Replay attack prevention
-- Duplicate settlement prevention
-- Tamper detection
+## Assets
 
-**Out of scope:**
+| Asset | Impact if compromised | Current protection / limitation |
+|---|---|---|
+| Payment payload | Disclosure or tampering | RSA-OAEP + AES-256-GCM; server decrypts payloads |
+| Sender signing key | Forged payment instructions | Device keypair is represented in application code; hardware-backed custody is not implemented |
+| Registered sender public key | Account impersonation if enrollment/binding is abused | Stored against a VPA; enrollment and account ownership are not authenticated by the REST API |
+| Bridge identity | Forged ingestion provenance | Not authenticated; caller-supplied `X-Bridge-Node-Id` |
+| Server private key | Decryption of captured payloads | Fresh in-memory RSA keypair generated at startup; no production KMS/HSM provisioning or rotation |
+| Account balances and ledger | Unauthorized reads or mutation | Transactions, constraints and locking help consistency; they do not replace API authorization |
 
-- Bluetooth LE / WiFi Direct transport security (not yet implemented)
-- Hardware-backed key storage (planned future work)
-- Formal protocol certification
-- Production deployment hardening
+## Threat actors
 
----
+- A passive observer who can capture QR payloads or network traffic.
+- An active network attacker who can alter, replay, or submit packets.
+- A malicious or compromised bridge that can submit arbitrary requests and spoof bridge-node labels.
+- A caller who can reach the REST API without a user account.
+- A compromised sender device or signing key.
+- An operator or attacker with access to server secrets or the settlement database.
 
-## Asset Inventory
+## Current controls and residual risks
 
-| Asset | Value | Protection Mechanism |
-|-------|-------|----------------------|
-| Payment payload (amount, sender, receiver) | High | AES-256-GCM encryption |
-| Device private keys | Critical | In-memory only (simulated; real: StrongBox/TEE) |
-| Server private key | Critical | ServerKeyHolder (file-based in dev) |
-| Transaction ledger | High | DB unique constraint + optimistic locking |
-| Account balances | High | Atomic debit/credit with `@Version` |
+### 1. Payload confidentiality
 
----
+**Implemented mechanism:** Hybrid encryption uses RSA-OAEP to protect an AES session key and AES-256-GCM to encrypt/authenticate the payload.
 
-## Threat Actors
+**Limitations:** The server is the decryption endpoint. Its RSA keypair is generated in memory on application startup, not provisioned through a persistent production key-management design. Forward secrecy, key escrow/recovery, and independent cryptographic review are not established. This is not end-to-end confidentiality against the gateway.
 
-| Actor | Capability | Motivation |
-|-------|-----------|------------|
-| Passive eavesdropper | Can read QR codes / mesh traffic | Learn payment details |
-| Active man-in-the-middle | Can modify packets in transit | Forge payments, steal funds |
-| Malicious bridge node | Can replay, drop, or duplicate packets | Double-spend, denial of service |
-| Compromised sender device | Has access to private key | Sign unauthorized payments |
-| Rogue gateway operator | Controls settlement server | Settle invalid transactions |
+### 2. Ciphertext integrity
 
----
+**Implemented mechanism:** AES-GCM authentication detects modification of ciphertext under the corresponding key.
 
-## Attack Scenarios & Defenses
+**Limitations:** This does not authenticate the HTTP caller, bridge node, or account owner. A caller able to reach an unauthenticated endpoint can still submit requests; application-level authorization is absent.
 
-### 1. Eavesdropping (Confidentiality)
+### 3. Payment signatures and sender identity
 
-**Threat:** Attacker reads QR code or intercepts mesh packet.
+**Implemented mechanism:** The ingestion service verifies an RSA-PSS signature using a public key looked up for the claimed sender VPA and fingerprint.
 
-**Defense:** Hybrid encryption (RSA-OAEP + AES-256-GCM). Without the server's private key, the attacker cannot decrypt the AES key, and without the AES key, cannot decrypt the payload.
+**Critical limitation:** Signature verification proves possession relative to the public key currently registered in the database; it does not prove that the key was securely enrolled by the legitimate account owner. The REST surface has no user authentication/authorization and no independently authenticated bridge identity. Therefore the repository must not claim complete sender identity assurance, authenticated account ownership, or non-repudiation.
 
-**Residual risk:** None within threat model. Server private key compromise is out of scope.
+### 4. Replay resistance
 
----
+**Implemented mechanisms:** The ingestion path validates a canonical UUID nonce, signed/expiry timestamps, maximum packet age, and a small future-clock-skew allowance. Database uniqueness and the idempotency layer prevent repeated settlement of the same payment intent under tested conditions.
 
-### 2. Tampering (Integrity)
+**Limitations:** These controls address payment-protocol replay/duplicate cases; they do not authenticate the bridge HTTP request. Clock integrity, nonce retention, database durability, and operational configuration remain assumptions. Expiry and retention policies require deployment-level review.
 
-**Threat:** Attacker modifies ciphertext in transit.
+### 5. Duplicate settlement and concurrency
 
-**Defense:** AES-GCM authenticated encryption. Any single-bit modification causes decryption to fail with `AEADBadTagException`.
+**Implemented mechanisms:** Redis owner-token claims, durable uniqueness constraints for packet hash and payment nonce, and ordered account locking/optimistic locking reduce duplicate settlement and concurrent balance-update errors. Automated tests cover selected concurrent-delivery and failure cases.
 
-**Residual risk:** Attacker could craft a new valid ciphertext if they had the AES key, but the AES key is encrypted with RSA-OAEP and only the server can decrypt it.
+**Limitations:** Repository tests do not prove correctness under all distributed failure modes. Redis/database outages, process crashes, backup restoration, and multi-region behavior need deployment-level testing.
 
----
+### 6. Bridge spoofing and Sybil attacks
 
-### 3. Replay Attack
+**Status: not mitigated.** The bridge ingestion endpoint accepts a caller-provided `X-Bridge-Node-Id`; it does not authenticate that node. A remote caller may spoof the label if it can reach the endpoint. The mesh simulator does not establish a trust domain for independently operated bridge nodes.
 
-**Threat:** Attacker captures a valid payment packet and submits it again later.
+**Required before shared deployment:** Individually provisioned bridge credentials or certificates, cryptographic request authentication with freshness/replay protection, revocation/rotation, authorization scopes, and audit logging. Do not use a static shared secret or trust the node-ID header as identity.
 
-**Defense:** Three layers:
+### 7. Unauthenticated API access
 
-1. **`nonce`** - Canonical UUID unique per payment intent and persisted under a database unique constraint
-2. **`signedAt` + `expiresAt`** - The gateway rejects expired packets and enforces the configured maximum packet age
-3. **Ciphertext-hash cache + durable nonce uniqueness** - Prevents repeat settlement even when the same signed instruction is encrypted again with a fresh AES key/IV
+**Status: not mitigated.** The current REST controller exposes demo mutation, mesh mutation, bridge ingestion, account listing, and transaction listing without user authentication or role-based authorization. Demo endpoints can create simulated transactions. This is a release blocker for any shared or internet-facing environment.
 
-**Residual risk:** If clock skew exceeds 5 minutes, future-dated packets are rejected. If server clock is manipulated, time checks fail.
+### 8. Key compromise and operational security
 
----
+The server keypair is generated at startup and held in process memory. Device private-key custody is not hardware-backed. Production KMS/HSM integration, rotation/revocation, backup, and recovery workflows are not implemented. A compromised server or device invalidates assumptions made by the cryptographic protocol.
 
-### 4. Duplicate Settlement (Double-Spend)
+## Security property summary
 
-**Threat:** Same packet reaches gateway through multiple bridge nodes simultaneously.
+| Property | Current evidence | Status |
+|---|---|---|
+| Payload encryption | RSA-OAEP + AES-256-GCM in code | Implemented mechanism; not independently audited |
+| Ciphertext tamper detection | AES-GCM authentication | Implemented mechanism; does not authenticate API caller |
+| Payment signature verification | RSA-PSS checked against registered VPA key | Implemented check; secure enrollment/account ownership not established |
+| Payment nonce/expiry checks | Ingestion validation and tests | Implemented checks; operational assumptions remain |
+| Duplicate settlement controls | Redis claim, database uniqueness, locking and tests | Implemented controls; not a distributed-systems proof |
+| User authentication | No REST authentication | **Missing — release blocker** |
+| Account/transaction authorization | No role/ownership enforcement | **Missing — release blocker** |
+| Bridge-node authentication | Caller-supplied node ID only | **Missing — release blocker** |
+| Secure key provisioning/rotation | Startup-generated server key; no production KMS/HSM workflow | **Missing** |
+| Forward secrecy | No ephemeral key agreement demonstrated | **Missing** |
+| Independent security review | Not evidenced | **Pending** |
 
-**Defense:** Three layers:
+## Required release gates
 
-1. **Redis idempotency claim on ciphertext hash** - Fast duplicate detection for identical deliveries; each claim has a unique owner token and release uses atomic compare-and-delete so an expired worker cannot delete a replacement worker's claim
-2. **DB unique constraints on `packetHash` and signed payment `nonce`** - Durable protection against identical packets and re-encrypted copies of the same payment intent
-3. **Ordered account locks and `@Version` optimistic locking** - Protect balance updates under concurrent settlement
+Track implementation in [issue #15](https://github.com/vankudothuadhinaik/UPI_Without_Internet/issues/15). At minimum:
 
-**Tested:** `IdempotencyConcurrencyTest` simulates 3 threads delivering the same packet concurrently. Exactly 1 settles, 2 are rejected.
+1. Define separate principals and least-privilege roles for account owners, demo operators, administrators, and bridge nodes.
+2. Authenticate account ownership and bind registered signing keys to authenticated principals through secure enrollment/recovery.
+3. Require authentication and authorization for every state-changing endpoint and restrict account/transaction reads to authorized owners or operators.
+4. Give each bridge an individually revocable credential; authenticate requests cryptographically and enforce freshness, replay prevention, scopes, and rotation.
+5. Disable demo-send, mesh reset, gossip, and flush endpoints outside an explicitly isolated demo profile.
+6. Provision server/device keys through a documented secret-management lifecycle; define rotation, revocation, backup, and recovery.
+7. Add negative tests for missing, invalid, expired, revoked, spoofed, replayed, and underprivileged credentials.
+8. Run deployment-specific integration tests and obtain an independent security review before changing the deployment warning.
 
-**Residual risk:** If cache and DB constraint both fail simultaneously (extremely unlikely), optimistic locking on balance prevents incorrect state.
+## What this project is not
 
----
-
-### 5. Sender Impersonation
-
-**Threat:** Attacker forges a payment claiming to be Alice.
-
-**Defense:** RSA-PSS digital signatures. Each device has a unique 2048-bit RSA keypair. The private key never leaves the device. The gateway verifies the signature against the registered public key before settlement.
-
-**Residual risk:** If device private key is stolen (e.g., rooted phone), attacker can sign valid payments. Mitigation: hardware-backed keys (StrongBox/TEE) - planned future work.
-
----
-
-### 6. Forged Signature
-
-**Threat:** Attacker creates a fake signature without the private key.
-
-**Defense:** RSA-PSS is computationally infeasible to forge without the private key under the assumed security model.
-
-**Residual risk:** Quantum computing (Shor's algorithm) - out of scope.
-
----
-
-### 7. Sybil Attack (Malicious Bridge Nodes)
-
-**Threat:** Attacker creates many fake bridge nodes to flood the network.
-
-**Defense:** Not yet implemented. The mesh simulation does not authenticate bridge nodes.
-
-**Planned mitigation:** Bridge node registration with proof-of-work or stake-based reputation.
-
----
-
-### 8. Key Compromise
-
-**Threat:** Server private key is leaked.
-
-**Impact:** All past and future payments can be decrypted. Signatures remain valid (device keys are separate).
-
-**Mitigation:** Key rotation, HSM storage - planned future work.
-
----
-
-## Security Property Summary
-
-| Property | Mechanism | Status |
-|----------|-----------|--------|
-| Confidentiality | AES-256-GCM | PASS |
-| Integrity | AES-GCM auth tag | PASS |
-| Sender authentication | RSA-PSS signatures | PASS |
-| Replay resistance | nonce + timestamp + idempotency | PASS |
-| Duplicate settlement prevention | Cache + DB constraint + optimistic locking | PASS |
-| Non-repudiation | RSA-PSS signatures | PASS |
-| Forward secrecy | None (static RSA keys) | PLANNED: ECDHE |
-| Hardware security | None (software keys) | PLANNED: StrongBox |
-
----
-
-## What This Is NOT
-
-This is a **research/educational prototype**, not a production UPI implementation. It does not:
-
-- Integrate with NPCI or real bank settlement rails
-- Use hardware security modules
-- Have formal security certification
-- Handle Byzantine fault tolerance
-- Provide forward secrecy
-
-These are intentional scope boundaries, not oversights.
+This is a research/educational simulation, not a production UPI implementation. It does not integrate with NPCI or real bank settlement rails, implement native Bluetooth/Wi-Fi Direct transport, establish authenticated bridge identities, provide production-grade account security, or carry formal security certification. No real funds or real payment credentials should be used.
