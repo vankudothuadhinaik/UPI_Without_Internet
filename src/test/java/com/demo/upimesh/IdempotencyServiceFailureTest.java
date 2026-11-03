@@ -19,7 +19,7 @@ class IdempotencyServiceFailureTest {
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         ValueOperations<String, String> values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
-        when(values.setIfAbsent(anyString(), eq("1"), any(Duration.class)))
+        when(values.setIfAbsent(anyString(), anyString(), any(Duration.class)))
                 .thenThrow(new IllegalStateException("Redis unavailable"));
         return new IdempotencyService(redis);
     }
@@ -43,4 +43,21 @@ class IdempotencyServiceFailureTest {
         assertTrue(service.claim("packet-hash"));
         assertFalse(service.claim("packet-hash"));
     }
+
+
+    @Test
+    void releaseOnlyRemovesTheClaimOwnedByItsToken() {
+        IdempotencyService service = serviceWithUnavailableRedis();
+        ReflectionTestUtils.setField(service, "localFallbackEnabled", true);
+
+        String ownerToken = service.claimWithToken("packet-hash");
+        assertNotNull(ownerToken);
+
+        service.release("packet-hash", "different-owner");
+        assertNull(service.claimWithToken("packet-hash"));
+
+        service.release("packet-hash", ownerToken);
+        assertNotNull(service.claimWithToken("packet-hash"));
+    }
+
 }
