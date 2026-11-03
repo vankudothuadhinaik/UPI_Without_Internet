@@ -20,11 +20,11 @@ import java.time.Instant;
  * BOTH the debit and credit happen, or neither does.
  *
  * Defense-in-depth idempotency:
- *   Layer 1: IdempotencyService.claim() — fast in-memory/Redis cache check
- *   Layer 2: DB unique constraint on transaction.packetHash — final guard
+ *   Layer 1: IdempotencyService.claim() — fast Redis ciphertext-hash claim
+ *   Layer 2: DB unique constraints on packetHash and signed payment nonce
  *
- * If two threads pass Layer 1 simultaneously, Layer 2 rejects the second one
- * with DataIntegrityViolationException, which we catch and return DUPLICATE.
+ * A uniqueness conflict is rethrown so this transaction fully rolls back. The
+ * ingestion layer classifies it as a duplicate only after the rollback completes.
  *
  * The @Version column on Account gives us optimistic locking — if two threads
  * somehow get past both layers and both try to debit the same account, the
@@ -90,9 +90,8 @@ public class SettlementService {
             tx.setHopCount(hopCount);
             tx.setStatus(Transaction.Status.SETTLED);
 
-            // Layer 2: DB unique constraint is the final guard.
-            // If another thread inserted this packetHash between our cache check and now,
-            // this save() throws DataIntegrityViolationException — we catch it below.
+            // The unique packetHash and nonce constraints are the durable final guard.
+            // A conflict aborts this entire transaction, including both balance updates.
             transactions.save(tx);
 
             log.info("SETTLED ₹{} from {} to {} (packetHash={}, bridge={}, hops={})",
