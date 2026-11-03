@@ -106,4 +106,50 @@ class PaymentIdentityValidationTest {
         verifyNoInteractions(settlement);
         verify(idempotency).release("packet-hash");
     }
+
+
+    @Test
+    void amountWithUnrepresentableFractionIsRejectedBeforeSettlement() throws Exception {
+        HybridCryptoService crypto = mock(HybridCryptoService.class);
+        DigitalSignatureService signatures = mock(DigitalSignatureService.class);
+        DeviceIdentityService identity = mock(DeviceIdentityService.class);
+        IdempotencyService idempotency = mock(IdempotencyService.class);
+        SettlementService settlement = mock(SettlementService.class);
+        PublicKey senderKey = mock(PublicKey.class);
+
+        long now = Instant.now().toEpochMilli();
+        PaymentInstruction instruction = new PaymentInstruction(
+                "alice@demo", "bob@demo", new BigDecimal("1.001"),
+                "pin-hash", UUID.randomUUID().toString(), now - 1_000, now + 60_000);
+        instruction.setSenderPublicKeyFingerprint("alice-fingerprint");
+        instruction.setSignature("valid-signature");
+
+        when(crypto.hashCiphertext("ciphertext")).thenReturn("amount-packet-hash");
+        when(crypto.decrypt("ciphertext")).thenReturn(instruction);
+        when(idempotency.claim("amount-packet-hash")).thenReturn(true);
+        when(identity.getPublicKeyForVpa("alice@demo", "alice-fingerprint"))
+                .thenReturn(senderKey);
+        when(signatures.verify(any(byte[].class), eq("valid-signature"), eq(senderKey)))
+                .thenReturn(true);
+
+        BridgeIngestionService ingestion = new BridgeIngestionService();
+        ReflectionTestUtils.setField(ingestion, "crypto", crypto);
+        ReflectionTestUtils.setField(ingestion, "sigService", signatures);
+        ReflectionTestUtils.setField(ingestion, "identity", identity);
+        ReflectionTestUtils.setField(ingestion, "idempotency", idempotency);
+        ReflectionTestUtils.setField(ingestion, "settlement", settlement);
+        ReflectionTestUtils.setField(ingestion, "maxAgeSeconds", 86_400L);
+
+        MeshPacket packet = new MeshPacket();
+        packet.setCiphertext("ciphertext");
+
+        BridgeIngestionService.IngestResult result =
+                ingestion.ingest(packet, "bridge-test", 1);
+
+        assertEquals("INVALID", result.outcome());
+        assertEquals("invalid_amount", result.reason());
+        verifyNoInteractions(settlement);
+        verify(idempotency).release("amount-packet-hash");
+    }
+
 }
