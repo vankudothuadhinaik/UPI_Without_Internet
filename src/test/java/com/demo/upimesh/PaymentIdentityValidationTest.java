@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.security.PublicKey;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -72,7 +73,7 @@ class PaymentIdentityValidationTest {
         long now = Instant.now().toEpochMilli();
         PaymentInstruction instruction = new PaymentInstruction(
                 "alice@demo", "bob@demo", new BigDecimal("1.00"),
-                "pin-hash", "nonce", now - 60_000, now - 1);
+                "pin-hash", UUID.randomUUID().toString(), now - 60_000, now - 1);
         instruction.setSenderPublicKeyFingerprint("alice-fingerprint");
         instruction.setSignature("valid-signature");
 
