@@ -80,6 +80,7 @@ public class SettlementService {
 
             Transaction tx = new Transaction();
             tx.setPacketHash(packetHash);
+            tx.setNonce(instruction.getNonce());
             tx.setSenderVpa(instruction.getSenderVpa());
             tx.setReceiverVpa(instruction.getReceiverVpa());
             tx.setAmount(amount);
@@ -101,10 +102,12 @@ public class SettlementService {
             return tx;
 
         } catch (DataIntegrityViolationException e) {
-            // Layer 2 triggered: Another thread won the race and inserted first.
-            // This is EXPECTED under high concurrency, not a bug.
-            log.info("DUPLICATE_DROPPED (DB constraint) — packetHash={}", packetHash.substring(0, 12));
-            return null; // Caller treats null as duplicate
+            // Let the transaction roll back before the ingestion layer classifies
+            // the durable unique-key conflict. Returning normally here can leave
+            // the Spring transaction marked rollback-only and fail at commit.
+            log.info("Unique transaction constraint conflict — packetHash={}",
+                    packetHash.substring(0, 12));
+            throw e;
         }
     }
 
@@ -112,6 +115,7 @@ public class SettlementService {
                                        String bridgeNodeId, int hopCount) {
         Transaction tx = new Transaction();
         tx.setPacketHash(packetHash);
+            tx.setNonce(instruction.getNonce());
         tx.setSenderVpa(instruction.getSenderVpa());
         tx.setReceiverVpa(instruction.getReceiverVpa());
         tx.setAmount(instruction.getAmount());
